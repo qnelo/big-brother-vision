@@ -478,6 +478,26 @@ class FaceOverlay:
         
         return frame_with_bg
     
+    def set_logo(self, logo_path: str):
+        """
+        Change the logo image at runtime.
+        
+        Args:
+            logo_path: Path to the new logo image
+        """
+        new_logo = cv2.imread(logo_path, cv2.IMREAD_UNCHANGED)
+        if new_logo is None:
+            print(f"❌ Could not load logo from {logo_path}")
+            return
+            
+        if new_logo.shape[2] != 4:
+            print("❌ Logo must have an alpha channel (RGBA)")
+            return
+            
+        self.original_logo = new_logo
+        self.logo_cache.clear()
+        print(f"✓ Logo updated to: {Path(logo_path).name}")
+
     def __del__(self):
         """Cleanup MediaPipe resources."""
         if hasattr(self, 'face_detector'):

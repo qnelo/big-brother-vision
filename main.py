@@ -27,6 +27,7 @@ from face_overlay import FaceOverlay
 # Configuration
 ASSETS_DIR = Path(__file__).parent / "assets"
 LOGO_PNG_PATH = ASSETS_DIR / "laughing_man.png"
+LOGO_WHITE_PNG_PATH = ASSETS_DIR / "laughing_man_white.png"
 CAMERA_DEVICE = "/dev/video0"  # Physical camera
 VIRTUAL_DEVICE = "/dev/video10"  # Virtual camera (must match v4l2loopback device)
 TARGET_FPS = 30
@@ -41,6 +42,7 @@ class LaughingManCamera:
         self.face_overlay = None
         self.running = True
         self.enable_background = True  # Default to True
+        self.use_white_logo = True  # Default to standard logo
         
         # Setup signal handlers for graceful shutdown
         signal.signal(signal.SIGINT, self._signal_handler)
@@ -212,8 +214,13 @@ class LaughingManCamera:
         print("="*60)
         print(f"📹 Virtual camera is available at: {VIRTUAL_DEVICE}")
         print(f"💡 In Google Meet, select 'Laughing-Man-Cam' as your camera")
-        print(f"🛑 Press Ctrl+C to stop")
+        print(f"⌨️  Press 't' or SPACE to toggle logo color")
+        print(f"🛑 Press 'q' or Ctrl+C to stop")
         print("="*60 + "\n")
+        
+        # Create a window for input capture
+        cv2.namedWindow("Laughing Man Control", cv2.WINDOW_NORMAL)
+        cv2.resizeWindow("Laughing Man Control", 360, 202)
         
         frame_count = 0
         start_time = time.time()
@@ -248,6 +255,21 @@ class LaughingManCamera:
                 
                 # Small delay to achieve target FPS
                 self.virtual_cam.sleep_until_next_frame()
+
+                # Show preview and capture input
+                cv2.imshow("Laughing Man Control", processed_frame)
+                key = cv2.waitKey(1) & 0xFF
+                
+                # Check for 'q' to quit
+                if key == ord('q'):
+                    self.running = False
+                    
+                # Check for 't' or space to toggle logo
+                elif key == ord('t') or key == 32:  # 32 is space
+                    self.use_white_logo = not self.use_white_logo
+                    new_logo = LOGO_WHITE_PNG_PATH if self.use_white_logo else LOGO_PNG_PATH
+                    print(f"🔄 Toggling logo to: {new_logo.name}")
+                    self.face_overlay.set_logo(str(new_logo))
         
         except Exception as e:
             print(f"\n❌ Error during processing: {e}")
@@ -269,6 +291,11 @@ class LaughingManCamera:
         if self.virtual_cam is not None:
             self.virtual_cam.close()
             print("✓ Virtual camera closed")
+        
+        
+        # Close any open windows
+        cv2.destroyAllWindows()
+        print("✓ Windows closed")
         
         print("👋 Goodbye!")
 
