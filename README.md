@@ -8,8 +8,6 @@
 
 *Overlay the iconic "The Laughing Man" logo over your face in real-time for video calls* 👤➡️🎭
 
-![Demo](/home/qnelo/.gemini/antigravity/brain/a8d25e18-7047-452f-a350-b842d9273b45/demo_mockup.webp)
-
 </div>
 
 ## 📖 Description
