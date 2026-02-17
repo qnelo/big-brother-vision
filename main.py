@@ -27,6 +27,7 @@ from face_overlay import FaceOverlay
 # Configuration
 ASSETS_DIR = Path(__file__).parent / "assets"
 LOGO_PNG_PATH = ASSETS_DIR / "laughing_man.png"
+LOGO_WHITE_PNG_PATH = ASSETS_DIR / "laughing_man_white.png"
 CAMERA_DEVICE = "/dev/video0"  # Physical camera
 VIRTUAL_DEVICE = "/dev/video10"  # Virtual camera (must match v4l2loopback device)
 TARGET_FPS = 30
@@ -40,6 +41,8 @@ class LaughingManCamera:
         self.virtual_cam = None
         self.face_overlay = None
         self.running = True
+        self.enable_background = True  # Default to True
+        self.use_white_logo = True  # Default to white logo
         
         # Setup signal handlers for graceful shutdown
         signal.signal(signal.SIGINT, self._signal_handler)
@@ -168,12 +171,16 @@ class LaughingManCamera:
         print(f"🎭 Initializing face detection...")
         
         try:
+            initial_logo = LOGO_WHITE_PNG_PATH if self.use_white_logo else LOGO_PNG_PATH
+            print(f"🖼️ Using initial logo: {initial_logo.name}")
+            
             self.face_overlay = FaceOverlay(
-                logo_path=str(LOGO_PNG_PATH),
-                min_detection_confidence=0.5
+                logo_path=str(initial_logo),
+                min_detection_confidence=0.5,
+                enable_background=self.enable_background
             )
             
-            print(f"✓ Face detection initialized")
+            print(f"✓ Face detection initialized (Background: {'Enabled' if self.enable_background else 'Disabled'})")
             return True
             
         except Exception as e:
@@ -210,8 +217,13 @@ class LaughingManCamera:
         print("="*60)
         print(f"📹 Virtual camera is available at: {VIRTUAL_DEVICE}")
         print(f"💡 In Google Meet, select 'Laughing-Man-Cam' as your camera")
-        print(f"🛑 Press Ctrl+C to stop")
+        print(f"⌨️  Press 't' or SPACE to toggle logo color")
+        print(f"🛑 Press 'q' or Ctrl+C to stop")
         print("="*60 + "\n")
+        
+        # Create a window for input capture
+        cv2.namedWindow("Laughing Man Control", cv2.WINDOW_NORMAL)
+        cv2.resizeWindow("Laughing Man Control", 360, 202)
         
         frame_count = 0
         start_time = time.time()
@@ -246,6 +258,21 @@ class LaughingManCamera:
                 
                 # Small delay to achieve target FPS
                 self.virtual_cam.sleep_until_next_frame()
+
+                # Show preview and capture input
+                cv2.imshow("Laughing Man Control", processed_frame)
+                key = cv2.waitKey(1) & 0xFF
+                
+                # Check for 'q' to quit
+                if key == ord('q'):
+                    self.running = False
+                    
+                # Check for 't' or space to toggle logo
+                elif key == ord('t') or key == 32:  # 32 is space
+                    self.use_white_logo = not self.use_white_logo
+                    new_logo = LOGO_WHITE_PNG_PATH if self.use_white_logo else LOGO_PNG_PATH
+                    print(f"🔄 Toggling logo to: {new_logo.name}")
+                    self.face_overlay.set_logo(str(new_logo))
         
         except Exception as e:
             print(f"\n❌ Error during processing: {e}")
@@ -268,12 +295,34 @@ class LaughingManCamera:
             self.virtual_cam.close()
             print("✓ Virtual camera closed")
         
+        
+        # Close any open windows
+        cv2.destroyAllWindows()
+        print("✓ Windows closed")
+        
         print("👋 Goodbye!")
 
 
+import argparse
+
+def parse_args():
+    """Parse command line arguments."""
+    parser = argparse.ArgumentParser(description="The Laughing Man Virtual Camera")
+    parser.add_argument("--no-background", action="store_true", help="Disable virtual background and segmentation")
+    return parser.parse_args()
+
 def main():
     """Entry point for the application."""
+    args = parse_args()
+    
     app = LaughingManCamera()
+    
+    # We need to pass the background setting to the app/overlay
+    # Since LaughingManCamera initializes FaceOverlay internally, 
+    # we should likely pass arguments to LaughingManCamera or handle it there.
+    # Let's modify LaughingManCamera.__init__ to accept args or config.
+    app.enable_background = not args.no_background
+    
     sys.exit(app.run())
 
 
