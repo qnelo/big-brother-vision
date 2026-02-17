@@ -58,14 +58,24 @@ fi
 echo -e "\n${GREEN}🚀 Starting application...${NC}"
 echo "================================================"
 
+# Ask user if they want to enable the virtual background
+EXTRA_ARGS=""
+read -p "❓ Enable virtual background (person segmentation)? (Y/n): " bg_choice
+if [[ "$bg_choice" =~ ^[Nn]$ ]]; then
+    echo "Creating camera WITHOUT virtual background..."
+    EXTRA_ARGS="--no-background"
+else
+    echo "Creating camera WITH virtual background..."
+fi
+
 if command -v uv &> /dev/null; then
     # Use uv if available (recommended)
-    uv run python main.py
+    uv run python main.py $EXTRA_ARGS
 else
     # Fallback for systems without uv
     echo "uv not found, running with python3..."
     if [ -d ".venv" ]; then
         source .venv/bin/activate
     fi
-    python3 main.py
+    python3 main.py $EXTRA_ARGS
 fi

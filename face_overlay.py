@@ -25,17 +25,22 @@ class FaceOverlay:
     # Model URL for MediaPipe selfie segmentation
     SEGMENTATION_MODEL_URL = "https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/1/selfie_segmenter.tflite"
     
-    def __init__(self, logo_path: str, min_detection_confidence: float = 0.5):
+    def __init__(self, logo_path: str, min_detection_confidence: float = 0.5, enable_background: bool = True):
         """
         Initialize the FaceOverlay with MediaPipe face detection and segmentation.
         
         Args:
             logo_path: Path to the logo image (must have alpha channel)
             min_detection_confidence: Minimum confidence for face detection (0.0-1.0)
+            enable_background: Whether to enable virtual background/segmentation
         """
+        self.enable_background = enable_background
+        
         # Download models if they don't exist
         self.model_path = self._ensure_model(self.MODEL_URL, "blaze_face_short_range.tflite")
-        self.segmentation_model_path = self._ensure_model(self.SEGMENTATION_MODEL_URL, "selfie_segmenter.tflite")
+        
+        if self.enable_background:
+            self.segmentation_model_path = self._ensure_model(self.SEGMENTATION_MODEL_URL, "selfie_segmenter.tflite")
         
         # Initialize MediaPipe Face Detection
         base_options = mp.tasks.BaseOptions(model_asset_path=str(self.model_path))
@@ -45,14 +50,15 @@ class FaceOverlay:
         )
         self.face_detector = mp.tasks.vision.FaceDetector.create_from_options(options)
         
-        # Initialize MediaPipe Image Segmenter
-        seg_base_options = mp.tasks.BaseOptions(model_asset_path=str(self.segmentation_model_path))
-        seg_options = mp.tasks.vision.ImageSegmenterOptions(
-            base_options=seg_base_options,
-            running_mode=mp.tasks.vision.RunningMode.VIDEO,
-            output_category_mask=True
-        )
-        self.segmenter = mp.tasks.vision.ImageSegmenter.create_from_options(seg_options)
+        # Initialize MediaPipe Image Segmenter (only if enabled)
+        if self.enable_background:
+            seg_base_options = mp.tasks.BaseOptions(model_asset_path=str(self.segmentation_model_path))
+            seg_options = mp.tasks.vision.ImageSegmenterOptions(
+                base_options=seg_base_options,
+                running_mode=mp.tasks.vision.RunningMode.VIDEO,
+                output_category_mask=True
+            )
+            self.segmenter = mp.tasks.vision.ImageSegmenter.create_from_options(seg_options)
         
         # Load logo with alpha channel
         self.original_logo = cv2.imread(logo_path, cv2.IMREAD_UNCHANGED)
@@ -62,11 +68,17 @@ class FaceOverlay:
         if self.original_logo.shape[2] != 4:
             raise ValueError("Logo must have an alpha channel (RGBA)")
         
-        # Background management
-        self.background_images = self._find_background_images()
-        self.current_bg_index = self._load_last_bg_index()
-        self.current_background = self._load_next_background()
-        self.resized_background = None
+        # Background management (only if enabled)
+        if self.enable_background:
+            self.background_images = self._find_background_images()
+            self.current_bg_index = self._load_last_bg_index()
+            self.current_background = self._load_next_background()
+            self.resized_background = None
+        else:
+            self.background_images = []
+            self.current_bg_index = -1
+            self.current_background = None
+            self.resized_background = None
         
         # Rotation angle tracker
         self.rotation_angle = 0
@@ -451,13 +463,13 @@ class FaceOverlay:
         Returns:
             Processed frame with background replacement and logo overlay
         """
-        # 1. Segment and replace background
-        frame_with_bg = self._segment_and_replace_background(frame)
+        frame_with_bg = frame
         
-        # 2. Detect face (use original frame or frame_with_bg? 
-        # Using original might be safer if background interferes, 
-        # but face should be visible in both. 
-        # Let's use frame_with_bg to be consistent with what is seen.)
+        # 1. Segment and replace background (if enabled)
+        if self.enable_background:
+            frame_with_bg = self._segment_and_replace_background(frame)
+        
+        # 2. Detect face (using the frame with background replaced)
         face_bbox = self.detect_face(frame)
         
         if face_bbox is not None:
