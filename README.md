@@ -6,143 +6,143 @@
 ![Python 3.10+](https://shields.io/badge/Python-3.10+-blue)
 ![License: MIT](https://img.shields.io/badge/License-MIT-green)
 
-*Superpón el icónico logo de "The Laughing Man" sobre tu rostro en tiempo real para videollamadas* 👤➡️🎭
+*Overlay the iconic "The Laughing Man" logo over your face in real-time for video calls* 👤➡️🎭
 
 ![Demo](/home/qnelo/.gemini/antigravity/brain/a8d25e18-7047-452f-a350-b842d9273b45/demo_mockup.webp)
 
 </div>
 
-## 📖 Descripción
+## 📖 Description
 
-Este proyecto crea un filtro de cámara virtual que detecta tu rostro en tiempo real y superpone el logo rotatorio de "The Laughing Man" de Ghost in the Shell: Stand Alone Complex. La salida se envía a una cámara virtual compatible con Google Meet, Zoom y otras aplicaciones de videoconferencia.
+This project creates a virtual camera filter that detects your face in real-time and overlays the rotating "The Laughing Man" logo from Ghost in the Shell: Stand Alone Complex. The output is sent to a virtual camera compatible with Google Meet, Zoom, and other video conferencing applications.
 
-## ✨ Características
+## ✨ Features
 
-- 🎯 **Detección de rostros** con MediaPipe (alta precisión y rendimiento)
-- 🔄 **Rotación continua** del logo (fiel al anime)
-- 🎨 **Alpha blending** para transparencia perfecta
-- 📹 **Cámara virtual** compatible con aplicaciones de videollamadas
-- ⚡ **Optimizado** para 30 FPS consistentes
-- 🎭 **Descarga automática** del logo desde la fuente oficial
+- 🎯 **Face detection** with MediaPipe (high precision and performance)
+- 🔄 **Continuous rotation** of the logo (faithful to the anime)
+- 🎨 **Alpha blending** for perfect transparency
+- 📹 **Virtual camera** compatible with video calling applications
+- ⚡ **Optimized** for consistent 30 FPS
+- 🎭 **Automatic download** of the logo from the official source
 
-## 🔧 Requisitos del Sistema
+## 🔧 System Requirements
 
-- **OS**: Linux (Ubuntu/Debian recomendado)
-- **Python**: 3.10 o superior
-- **Hardware**: Webcam compatible con V4L2
+- **OS**: Linux (Ubuntu/Debian recommended)
+- **Python**: 3.10 or higher
+- **Hardware**: V4L2-compatible webcam
 
-### Dependencias del Sistema
+### System Dependencies
 
 ```bash
 sudo apt update
 sudo apt install -y v4l2loopback-dkms v4l2loopback-utils libcairo2-dev
 ```
 
-## 🚀 Instalación
+## 🚀 Installation
 
-Para instrucciones detalladas paso a paso, consulta [INSTALL.md](INSTALL.md).
+For detailed step-by-step instructions, see [INSTALL.md](INSTALL.md).
 
-### Instalación Rápida
+### Quick Installation
 
 ```bash
-# 1. Clonar el repositorio
+# 1. Clone the repository
 cd /home/qnelo/develop/personal/thelaughing-man
 
-# 2. Cargar el módulo v4l2loopback
+# 2. Load the v4l2loopback module
 sudo modprobe v4l2loopback devices=1 video_nr=10 card_label="Laughing-Man-Cam" exclusive_caps=1
 
-# 3. Instalar con uv (recomendado)
+# 3. Install with uv (recommended)
 curl -LsSf https://astral.sh/uv/install.sh | sh
 uv venv
 source .venv/bin/activate
 uv pip install -e .
 
-# 4. Ejecutar
+# 4. Run
 python main.py
 ```
 
-## 💻 Uso
+## 💻 Usage
 
-1. **Iniciar la cámara virtual**:
+1. **Start the virtual camera**:
    ```bash
    source .venv/bin/activate
    python main.py
    ```
 
-2. **Configurar en Google Meet**:
-   - Abre Google Meet en tu navegador
-   - Ve a Configuración → Video
-   - Selecciona **"Laughing-Man-Cam"** como tu cámara
-   - ¡Listo! El filtro se aplicará automáticamente
+2. **Configure in Google Meet**:
+   - Open Google Meet in your browser
+   - Go to Settings → Video
+   - Select **"Laughing-Man-Cam"** as your camera
+   - Done! The filter will be applied automatically
 
-3. **Detener la aplicación**:
-   - Presiona `Ctrl+C` en la terminal
+3. **Stop the application**:
+   - Press `Ctrl+C` in the terminal
 
-## 📊 Rendimiento
+## 📊 Performance
 
-El sistema está optimizado para mantener 30 FPS constantes:
-- ✅ Detección de rostros usando modelo ligero de MediaPipe
-- ✅ Caché de logos redimensionados
-- ✅ Alpha blending optimizado con NumPy
-- ✅ Rotación eficiente con OpenCV
+The system is optimized to maintain a constant 30 FPS:
+- ✅ Face detection using MediaPipe's lightweight model
+- ✅ Resized logo caching
+- ✅ Optimized alpha blending with NumPy
+- ✅ Efficient rotation with OpenCV
 
-## 🔧 Configuración Avanzada
+## 🔧 Advanced Configuration
 
-### Cambiar el dispositivo de cámara virtual
+### Change the virtual camera device
 
-Edita `main.py` y modifica:
+Edit `main.py` and modify:
 ```python
-VIRTUAL_DEVICE = "/dev/video10"  # Cambia el número si es necesario
+VIRTUAL_DEVICE = "/dev/video10"  # Change the number if necessary
 ```
 
-### Ajustar la confianza de detección
+### Adjust detection confidence
 
-En `main.py`, modifica:
+In `main.py`, modify:
 ```python
 self.face_overlay = FaceOverlay(
     logo_path=str(LOGO_PNG_PATH),
-    min_detection_confidence=0.5  # Rango: 0.0 - 1.0
+    min_detection_confidence=0.5  # Range: 0.0 - 1.0
 )
 ```
 
-## 🐛 Solución de Problemas
+## 🐛 Troubleshooting
 
 ### Error: "Failed to open camera"
-- Verifica que tu webcam esté conectada: `ls /dev/video*`
-- Prueba con otro dispositivo: `CAMERA_DEVICE = "/dev/video1"`
+- Verify that your webcam is connected: `ls /dev/video*`
+- Try another device: `CAMERA_DEVICE = "/dev/video1"`
 
 ### Error: "Failed to initialize virtual camera"
-- Verifica que v4l2loopback esté cargado: `lsmod | grep v4l2loopback`
-- Recarga el módulo: `sudo modprobe -r v4l2loopback && sudo modprobe v4l2loopback devices=1 video_nr=10 card_label="Laughing-Man-Cam" exclusive_caps=1`
+- Verify that v4l2loopback is loaded: `lsmod | grep v4l2loopback`
+- Reload the module: `sudo modprobe -r v4l2loopback && sudo modprobe v4l2loopback devices=1 video_nr=10 card_label="Laughing-Man-Cam" exclusive_caps=1`
 
-### La detección de rostro es lenta
-- Reduce la resolución de tu webcam
-- Aumenta `min_detection_confidence` a 0.6 o 0.7
+### Face detection is slow
+- Reduce your webcam resolution
+- Increase `min_detection_confidence` to 0.6 or 0.7
 
-### Google Meet no muestra la cámara virtual
-- Verifica que el dispositivo existe: `v4l2-ctl --list-devices`
-- Reinicia el navegador después de iniciar el script
-- Dale permisos de cámara al navegador
+### Google Meet doesn't show the virtual camera
+- Verify that the device exists: `v4l2-ctl --list-devices`
+- Restart the browser after starting the script
+- Grant camera permissions to the browser
 
-## 📄 Licencia
+## 📄 License
 
-MIT License - Ver archivo LICENSE para más detalles
+MIT License - See LICENSE file for more details
 
-## 🙏 Créditos
+## 🙏 Credits
 
 - **Logo**: Ghost in the Shell: Stand Alone Complex
 - **Face Detection**: [MediaPipe](https://mediapipe.dev/)
 - **Virtual Camera**: [pyvirtualcam](https://github.com/letmaik/pyvirtualcam)
-- **Inspiración**: La icónica escena del "Laughing Man" 🎭
+- **Inspiration**: The iconic "Laughing Man" scene 🎭
 
-## 🤝 Contribuciones
+## 🤝 Contributions
 
-Las contribuciones son bienvenidas! Por favor:
-1. Fork el proyecto
-2. Crea una rama para tu feature (`git checkout -b feature/AmazingFeature`)
-3. Commit tus cambios (`git commit -m 'Add some AmazingFeature'`)
-4. Push a la rama (`git push origin feature/AmazingFeature`)
-5. Abre un Pull Request
+Contributions are welcome! Please:
+1. Fork the project
+2. Create a branch for your feature (`git checkout -b feature/AmazingFeature`)
+3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
+4. Push to the branch (`git push origin feature/AmazingFeature`)
+5. Open a Pull Request
 
 ---
 

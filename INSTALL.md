@@ -1,143 +1,143 @@
-# Guía de Instalación - The Laughing Man Virtual Camera
+# Installation Guide - The Laughing Man Virtual Camera
 
-Esta guía te llevará paso a paso por el proceso de instalación y configuración del filtro de cámara virtual.
+This guide will walk you through the installation and configuration process of the virtual camera filter step by step.
 
-## 📋 Requisitos Previos
+## 📋 Prerequisites
 
-- **Sistema Operativo**: Linux (Ubuntu 20.04+, Debian 11+, o similar)
-- **Python**: 3.10 o superior
-- **Webcam**: Compatible con V4L2
-- **Permisos**: Acceso sudo para instalar paquetes del sistema
+- **Operating System**: Linux (Ubuntu 20.04+, Debian 11+, or similar)
+- **Python**: 3.10 or higher
+- **Webcam**: V4L2-compatible
+- **Permissions**: Sudo access to install system packages
 
-## 🔧 Instalación Paso a Paso
+## 🔧 Step-by-Step Installation
 
-### 1. Actualizar el Sistema e Instalar Dependencias
+### 1. Update System and Install Dependencies
 
 ```bash
 sudo apt update
 sudo apt install -y v4l2loopback-dkms v4l2loopback-utils libcairo2-dev
 ```
 
-**¿Qué instala cada paquete?**
-- `v4l2loopback-dkms`: Módulo del kernel para crear dispositivos de cámara virtual
-- `v4l2loopback-utils`: Utilidades para gestionar v4l2loopback
-- `libcairo2-dev`: Biblioteca necesaria para convertir SVG a PNG
+**What does each package install?**
+- `v4l2loopback-dkms`: Kernel module to create virtual camera devices
+- `v4l2loopback-utils`: Utilities to manage v4l2loopback
+- `libcairo2-dev`: Library needed to convert SVG to PNG
 
-### 2. Cargar el Módulo v4l2loopback
+### 2. Load the v4l2loopback Module
 
 ```bash
 sudo modprobe v4l2loopback devices=1 video_nr=10 card_label="Laughing-Man-Cam" exclusive_caps=1
 ```
 
-**Parámetros explicados:**
-- `devices=1`: Crear un solo dispositivo virtual
-- `video_nr=10`: Número del dispositivo (`/dev/video10`)
-- `card_label="Laughing-Man-Cam"`: Nombre que aparecerá en Google Meet
-- `exclusive_caps=1`: Necesario para compatibilidad con navegadores modernos
+**Parameters explained:**
+- `devices=1`: Create a single virtual device
+- `video_nr=10`: Device number (`/dev/video10`)
+- `card_label="Laughing-Man-Cam"`: Name that will appear in Google Meet
+- `exclusive_caps=1`: Necessary for compatibility with modern browsers
 
-**Verificar que el módulo se cargó correctamente:**
+**Verify that the module loaded correctly:**
 ```bash
-# Debería mostrar "v4l2loopback"
+# Should show "v4l2loopback"
 lsmod | grep v4l2loopback
 
-# Debería mostrar "Laughing-Man-Cam" como /dev/video10
+# Should show "Laughing-Man-Cam" as /dev/video10
 v4l2-ctl --list-devices
 ```
 
-### 3. Configurar Permisos de Usuario
+### 3. Configure User Permissions
 
-Añade tu usuario al grupo `video` para acceder a los dispositivos de cámara:
+Add your user to the `video` group to access camera devices:
 
 ```bash
 sudo usermod -aG video $USER
 ```
 
-**⚠️ IMPORTANTE**: Debes cerrar sesión y volver a entrar para que los cambios surtan efecto.
+**⚠️ IMPORTANT**: You must log out and log back in for the changes to take effect.
 
-Verifica que estás en el grupo:
+Verify that you are in the group:
 ```bash
 groups | grep video
 ```
 
-### 4. [OPCIONAL] Configurar Persistencia del Módulo
+### 4. [OPTIONAL] Configure Module Persistence
 
-Si quieres que el módulo v4l2loopback se cargue automáticamente al iniciar el sistema:
+If you want the v4l2loopback module to load automatically at system startup:
 
 ```bash
-# Cargar módulo al inicio
+# Load module at startup
 echo "v4l2loopback" | sudo tee /etc/modules-load.d/v4l2loopback.conf
 
-# Configurar opciones del módulo
+# Configure module options
 echo "options v4l2loopback devices=1 video_nr=10 card_label='Laughing-Man-Cam' exclusive_caps=1" | sudo tee /etc/modprobe.d/v4l2loopback.conf
 ```
 
-**Verificar configuración:**
+**Verify configuration:**
 ```bash
 cat /etc/modules-load.d/v4l2loopback.conf
 cat /etc/modprobe.d/v4l2loopback.conf
 ```
 
-### 5. Instalar Dependencias de Python
+### 5. Install Python Dependencies
 
-#### Opción A: Usando `uv` (⚡ RECOMENDADO)
+#### Option A: Using `uv` (⚡ RECOMMENDED)
 
-`uv` es significativamente más rápido que pip tradicional y maneja mejor las dependencias.
+`uv` is significantly faster than traditional pip and handles dependencies better.
 
 ```bash
-# Instalar uv
+# Install uv
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# Recargar shell para usar uv
-source ~/.bashrc  # o ~/.zshrc si usas zsh
+# Reload shell to use uv
+source ~/.bashrc  # or ~/.zshrc if using zsh
 
-# Navegar al directorio del proyecto
+# Navigate to project directory
 cd /home/qnelo/develop/personal/thelaughing-man
 
-# Crear entorno virtual
+# Create virtual environment
 uv venv
 
-# Activar entorno virtual
+# Activate virtual environment
 source .venv/bin/activate
 
-# Instalar el proyecto y sus dependencias
+# Install the project and its dependencies
 uv pip install -e .
 ```
 
-#### Opción B: Usando `venv` tradicional
+#### Option B: Using traditional `venv`
 
 ```bash
-# Navegar al directorio del proyecto
+# Navigate to project directory
 cd /home/qnelo/develop/personal/thelaughing-man
 
-# Crear entorno virtual
+# Create virtual environment
 python3 -m venv .venv
 
-# Activar entorno virtual
+# Activate virtual environment
 source .venv/bin/activate
 
-# Actualizar pip
+# Update pip
 pip install --upgrade pip
 
-# Instalar el proyecto y sus dependencias
+# Install the project and its dependencies
 pip install -e .
 ```
 
-**Verificar la instalación:**
+**Verify installation:**
 ```bash
-python -c "import mediapipe, cv2, pyvirtualcam, cairosvg; print('✓ Todas las dependencias instaladas correctamente')"
+python -c "import mediapipe, cv2, pyvirtualcam, cairosvg; print('✓ All dependencies installed correctly')"
 ```
 
-## 🚀 Primera Ejecución
+## 🚀 First Run
 
 ```bash
-# Asegurarse de que el entorno virtual está activado
+# Make sure the virtual environment is activated
 source .venv/bin/activate
 
-# Ejecutar el script
+# Run the script
 python main.py
 ```
 
-**Salida esperada:**
+**Expected output:**
 ```
 📥 Downloading logo from https://static.wikia.nocookie.net/...
 ✓ Logo downloaded successfully: assets/laughing_man.svg
@@ -161,18 +161,18 @@ python main.py
 📊 FPS: 29.8
 ```
 
-## 🎥 Configurar en Google Meet
+## 🎥 Configure in Google Meet
 
-1. Abre Google Meet en tu navegador preferido (Chrome/Firefox)
-2. Inicia o únete a una reunión
-3. Haz clic en los tres puntos (⋮) → **Configuración**
-4. Ve a la pestaña **Video**
-5. En "Cámara", selecciona **"Laughing-Man-Cam"**
-6. ¡Deberías ver el filtro aplicado en tiempo real!
+1. Open Google Meet in your preferred browser (Chrome/Firefox)
+2. Start or join a meeting
+3. Click on the three dots (⋮) → **Settings**
+4. Go to the **Video** tab
+5. Under "Camera", select **"Laughing-Man-Cam"**
+6. You should see the filter applied in real-time!
 
-## 🔄 Uso Diario
+## 🔄 Daily Use
 
-### Iniciar la cámara virtual
+### Start the virtual camera
 
 ```bash
 cd /home/qnelo/develop/personal/thelaughing-man
@@ -180,17 +180,17 @@ source .venv/bin/activate
 python main.py
 ```
 
-### Detener la cámara virtual
+### Stop the virtual camera
 
-Presiona `Ctrl+C` en la terminal donde se está ejecutando.
+Press `Ctrl+C` in the terminal where it's running.
 
-### Script de conveniencia (opcional)
+### Convenience script (optional)
 
-Puedes crear un script para iniciar rápidamente:
+You can create a script to start quickly:
 
 ```bash
 #!/bin/bash
-# Guardar como ~/start-laughing-man.sh
+# Save as ~/start-laughing-man.sh
 
 cd /home/qnelo/develop/personal/thelaughing-man
 source .venv/bin/activate
@@ -202,90 +202,90 @@ Hacerlo ejecutable:
 chmod +x ~/start-laughing-man.sh
 ```
 
-Ejecutar:
+Run:
 ```bash
 ~/start-laughing-man.sh
 ```
 
-## 🐛 Solución de Problemas
+## 🐛 Troubleshooting
 
-### El módulo v4l2loopback no se carga
+### The v4l2loopback module won't load
 
 **Error**: `modprobe: FATAL: Module v4l2loopback not found`
 
-**Solución**:
+**Solution**:
 ```bash
-# Reinstalar v4l2loopback-dkms
+# Reinstall v4l2loopback-dkms
 sudo apt remove v4l2loopback-dkms
 sudo apt install v4l2loopback-dkms
 ```
 
-### /dev/video10 no se crea
+### /dev/video10 is not created
 
-**Verificar dispositivos existentes**:
+**Check existing devices**:
 ```bash
 ls /dev/video*
 ```
 
-Si `/dev/video10` ya existe, cambia el número:
+If `/dev/video10` already exists, change the number:
 ```bash
 sudo modprobe v4l2loopback devices=1 video_nr=20 card_label="Laughing-Man-Cam" exclusive_caps=1
 ```
 
-Y actualiza `VIRTUAL_DEVICE` en `main.py`.
+And update `VIRTUAL_DEVICE` in `main.py`.
 
-### Errores de permisos al acceder a /dev/videoX
+### Permission errors when accessing /dev/videoX
 
 **Error**: `Permission denied`
 
-**Solución**:
+**Solution**:
 ```bash
-# Verificar permisos
+# Check permissions
 ls -l /dev/video*
 
-# Añadir usuario al grupo video
+# Add user to video group
 sudo usermod -aG video $USER
 
-# Cerrar sesión y volver a entrar
+# Log out and log back in
 ```
 
-### Dependencias de Python no se instalan
+### Python dependencies won't install
 
-**Error relacionado con `cairosvg`**:
+**Error related to `cairosvg`**:
 
-Asegúrate de que `libcairo2-dev` está instalado:
+Make sure `libcairo2-dev` is installed:
 ```bash
 sudo apt install -y libcairo2-dev pkg-config
 ```
 
-**Error relacionado con `mediapipe`**:
+**Error related to `mediapipe`**:
 
-MediaPipe puede requerir dependencias adicionales:
+MediaPipe may require additional dependencies:
 ```bash
 sudo apt install -y python3-dev build-essential
 ```
 
-### La cámara no se detecta en Google Meet
+### Camera is not detected in Google Meet
 
-1. **Verificar que el script está corriendo** y no hay errores
-2. **Recargar la página** de Google Meet
-3. **Verificar permisos de cámara** en el navegador
-4. **Probar la cámara virtual** con otra herramienta primero:
+1. **Verify that the script is running** and there are no errors
+2. **Reload the page** in Google Meet
+3. **Check camera permissions** in the browser
+4. **Test the virtual camera** with another tool first:
    ```bash
    ffplay /dev/video10
    ```
 
-## 📚 Recursos Adicionales
+## 📚 Additional Resources
 
-- [Documentación de v4l2loopback](https://github.com/umlaeute/v4l2loopback)
-- [Documentación de MediaPipe](https://mediapipe.dev/)
-- [Guía de pyvirtualcam](https://github.com/letmaik/pyvirtualcam)
-- [Documentación de uv](https://github.com/astral-sh/uv)
+- [v4l2loopback Documentation](https://github.com/umlaeute/v4l2loopback)
+- [MediaPipe Documentation](https://mediapipe.dev/)
+- [pyvirtualcam Guide](https://github.com/letmaik/pyvirtualcam)
+- [uv Documentation](https://github.com/astral-sh/uv)
 
-## ❓ ¿Necesitas Ayuda?
+## ❓ Need Help?
 
-Si encuentras algún problema no cubierto en esta guía, abre un issue en el repositorio del proyecto.
+If you encounter any issues not covered in this guide, open an issue in the project repository.
 
 ---
 
-¡Disfruta de tu cámara virtual con estilo! 🎭✨
+Enjoy your virtual camera with style! 🎭✨
