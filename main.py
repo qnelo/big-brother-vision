@@ -42,7 +42,7 @@ class LaughingManCamera:
         self.face_overlay = None
         self.running = True
         self.enable_background = True  # Default to True
-        self.use_white_logo = True  # Default to standard logo
+        self.use_white_logo = True  # Default to white logo
         
         # Setup signal handlers for graceful shutdown
         signal.signal(signal.SIGINT, self._signal_handler)
@@ -171,8 +171,11 @@ class LaughingManCamera:
         print(f"🎭 Initializing face detection...")
         
         try:
+            initial_logo = LOGO_WHITE_PNG_PATH if self.use_white_logo else LOGO_PNG_PATH
+            print(f"🖼️ Using initial logo: {initial_logo.name}")
+            
             self.face_overlay = FaceOverlay(
-                logo_path=str(LOGO_PNG_PATH),
+                logo_path=str(initial_logo),
                 min_detection_confidence=0.5,
                 enable_background=self.enable_background
             )
