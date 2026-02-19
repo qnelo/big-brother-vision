@@ -450,7 +450,7 @@ dependencies = [
 requires-dist = [
     { name = "mediapipe", specifier = ">=0.10.0" },
     { name = "numpy", specifier = ">=1.24.0" },
-    { name = "opencv-python", specifier = ">=4.8.0" },
+    { name = "opencv-python", specifier = ">=4.11.0" },
     { name = "pyvirtualcam", specifier = ">=0.11.0" },
 ]
 

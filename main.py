@@ -26,8 +26,8 @@ from face_overlay import FaceOverlay
 
 # Configuration
 ASSETS_DIR = Path(__file__).parent / "assets"
-LOGO_PNG_PATH = ASSETS_DIR / "laughing_man.png"
-LOGO_WHITE_PNG_PATH = ASSETS_DIR / "laughing_man_white.png"
+LOGO_PNG_PATH = ASSETS_DIR / "laughing_man_video_transparent.png"
+LOGO_WHITE_PNG_PATH = ASSETS_DIR / "laughing_man_video_white_v2.png"
 CAMERA_DEVICE = "/dev/video0"  # Physical camera
 VIRTUAL_DEVICE = "/dev/video10"  # Virtual camera (must match v4l2loopback device)
 TARGET_FPS = 30

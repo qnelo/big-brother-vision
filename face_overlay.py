@@ -2,7 +2,7 @@
 Face Overlay Module - The Laughing Man Virtual Camera
 
 This module provides the FaceOverlay class that handles face detection using MediaPipe
-and overlays a rotating logo image on detected faces.
+and overlays a logo image (static PNG or animated APNG) on detected faces.
 """
 
 import cv2
@@ -60,14 +60,14 @@ class FaceOverlay:
             )
             self.segmenter = mp.tasks.vision.ImageSegmenter.create_from_options(seg_options)
         
-        # Load logo with alpha channel
-        self.original_logo = cv2.imread(logo_path, cv2.IMREAD_UNCHANGED)
-        if self.original_logo is None:
-            raise ValueError(f"Could not load logo from {logo_path}")
-        
-        if self.original_logo.shape[2] != 4:
-            raise ValueError("Logo must have an alpha channel (RGBA)")
-        
+        # Load logo (APNG animation or static PNG with alpha channel)
+        self.original_logo = None
+        self.original_frames = None
+        self.animation_durations = None
+        self.animation_loop_count = 0
+        self.current_frame_index = 0
+        self._load_logo_from_path(logo_path)
+
         # Background management (only if enabled)
         if self.enable_background:
             self.background_images = self._find_background_images()
@@ -79,11 +79,8 @@ class FaceOverlay:
             self.current_bg_index = -1
             self.current_background = None
             self.resized_background = None
-        
-        # Rotation angle tracker
-        self.rotation_angle = 0
-        
-        # Cache for resized logos (size -> rotated_logo)
+
+        # Cache for resized logos: (logo_size,) for static, (logo_size, frame_index) for APNG
         self.logo_cache = {}
         self.last_face_size = None
         
@@ -116,6 +113,41 @@ class FaceOverlay:
             print(f"✓ Model downloaded: {model_path}")
         
         return model_path
+
+    def _load_logo_from_path(self, logo_path: str) -> None:
+        """
+        Load logo from path as APNG (if multiple frames) or static PNG.
+        Sets self.original_frames + animation_* for APNG, or self.original_logo for static.
+        """
+        imreadanimation = getattr(cv2, "imreadanimation", None)
+        if imreadanimation is not None:
+            try:
+                success, animation = imreadanimation(logo_path)
+                if success and hasattr(animation, "frames") and len(animation.frames) > 1:
+                    frames = [np.array(f) for f in animation.frames]
+                    for i, f in enumerate(frames):
+                        if f.shape[2] != 4:
+                            raise ValueError(
+                                f"APNG frame {i} must have 4 channels (alpha), got {f.shape[2]}"
+                            )
+                    self.original_frames = frames
+                    self.animation_durations = getattr(
+                        animation, "durations", [0] * len(frames)
+                    )
+                    self.animation_loop_count = getattr(
+                        animation, "loop_count", 0
+                    )
+                    self.current_frame_index = 0
+                    return
+            except Exception:
+                pass
+        # Fallback: static PNG
+        img = cv2.imread(logo_path, cv2.IMREAD_UNCHANGED)
+        if img is None:
+            raise ValueError(f"Could not load logo from {logo_path}")
+        if img.shape[2] != 4:
+            raise ValueError("Logo must have an alpha channel (RGBA/BGRA)")
+        self.original_logo = img
 
     def _find_background_images(self) -> List[Path]:
         """Find all wall{n}.jpg images in assets directory."""
@@ -237,35 +269,6 @@ class FaceOverlay:
         
         return (x, y, width, height)
     
-    def _rotate_image(self, image: np.ndarray, angle: float) -> np.ndarray:
-        """
-        Rotate an image around its center while preserving the alpha channel.
-        
-        Args:
-            image: RGBA image
-            angle: Rotation angle in degrees
-            
-        Returns:
-            Rotated RGBA image
-        """
-        h, w = image.shape[:2]
-        center = (w // 2, h // 2)
-        
-        # Get rotation matrix
-        rotation_matrix = cv2.getRotationMatrix2D(center, angle, 1.0)
-        
-        # Rotate the image
-        rotated = cv2.warpAffine(
-            image,
-            rotation_matrix,
-            (w, h),
-            flags=cv2.INTER_LINEAR,
-            borderMode=cv2.BORDER_CONSTANT,
-            borderValue=(0, 0, 0, 0)
-        )
-        
-        return rotated
-    
     def _overlay_image_alpha(
         self,
         background: np.ndarray,
@@ -324,7 +327,7 @@ class FaceOverlay:
         face_bbox: Tuple[int, int, int, int]
     ) -> np.ndarray:
         """
-        Overlay the rotating logo on the detected face.
+        Overlay the logo (static or APNG animation) on the detected face.
         
         Args:
             frame: Input frame (BGR format)
@@ -334,54 +337,41 @@ class FaceOverlay:
             Frame with logo overlay
         """
         x, y, width, height = face_bbox
-        
+
         # Calculate face size (use the larger dimension to ensure coverage)
         face_size = max(width, height)
-        
-        # Make the logo slightly larger than the face for better coverage
-        # Increased from 1.3 to 1.55 (approx +20% from original, covering +25% total face size)
         logo_size = int(face_size * 1.55)
-        
-        # Remove the threshold check for smoother size transitions
-        # We just resize every time if size changed even slightly, or cache aggressively
-        # For smoothness, it's better to just resize to the exact smoothed size
-        # To avoid performance hit, we can round to nearest 2 pixels
         logo_size = (logo_size // 2) * 2
-        
-        # Simple caching for exact matches
-        if logo_size not in self.logo_cache:
-            # Manage cache size
-            if len(self.logo_cache) > 20:
-                self.logo_cache.clear()
-                
-            resized_logo = cv2.resize(
-                self.original_logo,
-                (logo_size, logo_size),
-                interpolation=cv2.INTER_LINEAR
-            )
-            self.logo_cache[logo_size] = resized_logo
+
+        # Get current frame (APNG or static)
+        if self.original_frames is not None:
+            frame_index = self.current_frame_index % len(self.original_frames)
+            current_logo = self.original_frames[frame_index]
+            cache_key = (logo_size, frame_index)
+            self.current_frame_index += 1
         else:
-            resized_logo = self.logo_cache[logo_size]
-        
-        # Rotate the logo
-        rotated_logo = self._rotate_image(resized_logo, self.rotation_angle)
-        
-        # Update rotation angle for next frame (2 degrees per frame)
-        self.rotation_angle = (self.rotation_angle + 2) % 360
-        
+            current_logo = self.original_logo
+            cache_key = logo_size
+
+        # Resize with cache
+        if len(self.logo_cache) > 60:
+            self.logo_cache.clear()
+        if cache_key not in self.logo_cache:
+            self.logo_cache[cache_key] = cv2.resize(
+                current_logo,
+                (logo_size, logo_size),
+                interpolation=cv2.INTER_LINEAR,
+            )
+        resized_logo = self.logo_cache[cache_key]
+
         # Calculate center position
         center_x = x + width // 2
         center_y = y + height // 2
-        
-        # Calculate top-left corner for overlay
-        # Offset Y upwards by 15% of height to better cover eyes/forehead
         y_offset = int(height * 0.15)
         overlay_x = center_x - logo_size // 2
         overlay_y = center_y - logo_size // 2 - y_offset
-        
-        # Apply the overlay
-        result = self._overlay_image_alpha(frame, rotated_logo, overlay_x, overlay_y)
-        
+
+        result = self._overlay_image_alpha(frame, resized_logo, overlay_x, overlay_y)
         return result
     
     def _segment_and_replace_background(self, frame: np.ndarray) -> np.ndarray:
@@ -480,23 +470,27 @@ class FaceOverlay:
     
     def set_logo(self, logo_path: str):
         """
-        Change the logo image at runtime.
+        Change the logo image at runtime (supports static PNG and APNG).
         
         Args:
             logo_path: Path to the new logo image
         """
-        new_logo = cv2.imread(logo_path, cv2.IMREAD_UNCHANGED)
-        if new_logo is None:
-            print(f"❌ Could not load logo from {logo_path}")
+        self.original_logo = None
+        self.original_frames = None
+        self.animation_durations = None
+        self.animation_loop_count = 0
+        self.current_frame_index = 0
+        try:
+            self._load_logo_from_path(logo_path)
+        except ValueError as e:
+            print(f"❌ {e}")
             return
-            
-        if new_logo.shape[2] != 4:
-            print("❌ Logo must have an alpha channel (RGBA)")
-            return
-            
-        self.original_logo = new_logo
         self.logo_cache.clear()
-        print(f"✓ Logo updated to: {Path(logo_path).name}")
+        name = Path(logo_path).name
+        if self.original_frames is not None:
+            print(f"✓ Logo updated to {name} ({len(self.original_frames)} frames)")
+        else:
+            print(f"✓ Logo updated to: {name}")
 
     def __del__(self):
         """Cleanup MediaPipe resources."""
