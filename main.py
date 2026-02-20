@@ -40,6 +40,7 @@ class LaughingManCamera:
         self.running = True
         self.enable_background = True  # Default to True
         self.use_white_logo = True  # Default to white logo
+        self.overlay_visible = True  # Show logo overlay by default; toggle with 'f'
         
         # Setup signal handlers for graceful shutdown
         signal.signal(signal.SIGINT, self._signal_handler)
@@ -215,6 +216,7 @@ class LaughingManCamera:
         print(f"📹 Virtual camera is available at: {VIRTUAL_DEVICE}")
         print(f"💡 In Google Meet, select 'Laughing-Man-Cam' as your camera")
         print(f"⌨️  Press 't' or SPACE to toggle logo color")
+        print(f"⌨️  Press 'f' to show/hide overlay (no logo)")
         print(f"🛑 Press 'q' or Ctrl+C to stop")
         print("="*60 + "\n")
         
@@ -270,6 +272,12 @@ class LaughingManCamera:
                     new_logo = LOGO_WHITE_PNG_PATH if self.use_white_logo else LOGO_PNG_PATH
                     print(f"🔄 Toggling logo to: {new_logo.name}")
                     self.face_overlay.set_logo(str(new_logo))
+
+                # Check for 'f' to toggle overlay on/off (show or hide logo completely)
+                elif key == ord('f'):
+                    self.overlay_visible = not self.overlay_visible
+                    self.face_overlay.set_overlay_visible(self.overlay_visible)
+                    print(f"🔄 Overlay: {'ON' if self.overlay_visible else 'OFF'}")
         
         except Exception as e:
             print(f"\n❌ Error during processing: {e}")

@@ -87,6 +87,9 @@ class FaceOverlay:
         self.prev_bbox = None
         self.smoothing_factor = 0.8  # Increased from 0.4 for much smoother movement
         self.jitter_threshold = 2    # Ignore movements smaller than this (pixels)
+
+        # Overlay visibility (can be toggled at runtime to show/hide logo)
+        self.overlay_visible = True
     
     def _ensure_model(self, url: str, filename: str) -> Path:
         """
@@ -450,7 +453,7 @@ class FaceOverlay:
             frame: Input frame (BGR format)
             
         Returns:
-            Processed frame with background replacement and logo overlay
+            Processed frame with background replacement and logo overlay (or without overlay if overlay_visible is False)
         """
         frame_with_bg = frame
         
@@ -458,14 +461,23 @@ class FaceOverlay:
         if self.enable_background:
             frame_with_bg = self._segment_and_replace_background(frame)
         
-        # 2. Detect face (using the frame with background replaced)
-        face_bbox = self.detect_face(frame)
-        
-        if face_bbox is not None:
-            # 3. Overlay logo
-            frame_with_bg = self.overlay_logo(frame_with_bg, face_bbox)
+        # 2. Detect face and overlay logo only when overlay is visible
+        if self.overlay_visible:
+            face_bbox = self.detect_face(frame)
+            if face_bbox is not None:
+                # 3. Overlay logo
+                frame_with_bg = self.overlay_logo(frame_with_bg, face_bbox)
         
         return frame_with_bg
+
+    def set_overlay_visible(self, visible: bool) -> None:
+        """
+        Show or hide the logo overlay at runtime.
+        
+        Args:
+            visible: True to draw the logo on the face, False to show only the camera (and optional background).
+        """
+        self.overlay_visible = visible
     
     def set_logo(self, logo_path: str):
         """

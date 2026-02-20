@@ -63,6 +63,10 @@ python main.py
 
 1. **Start the virtual camera**:
    ```bash
+   ./start.sh
+   ```
+   Or manually:
+   ```bash
    source .venv/bin/activate
    python main.py
    ```
@@ -73,8 +77,13 @@ python main.py
    - Select **"Laughing-Man-Cam"** as your camera
    - Done! The filter will be applied automatically
 
-3. **Stop the application**:
-   - Press `Ctrl+C` in the terminal
+3. **Keyboard shortcuts** (focus on the "Laughing Man Control" window):
+   - **`t`** or **Space**: Toggle logo style (e.g. white / transparent)
+   - **`f`**: Show or hide the overlay (camera only, or camera + logo on face)
+   - **`q`** or **Ctrl+C**: Quit the application
+
+4. **Stop the application**:
+   - Press `q` in the control window, or `Ctrl+C` in the terminal
 
 ## 📊 Performance
 
