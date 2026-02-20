@@ -26,7 +26,9 @@ ASSETS_DIR = Path(__file__).parent / "assets"
 LOGO_PNG_PATH = ASSETS_DIR / "laughing_man_video_transparent.png"
 LOGO_WHITE_PNG_PATH = ASSETS_DIR / "laughing_man_video_white.png"
 CAMERA_DEVICE = "/dev/video0"  # Physical camera
-VIRTUAL_DEVICE = "/dev/video10"  # Virtual camera (must match v4l2loopback device)
+VIRTUAL_DEVICE = (
+    "/dev/video10"  # Virtual camera (must match v4l2loopback device)
+)
 TARGET_FPS = 30
 
 
@@ -40,9 +42,15 @@ class LaughingManCamera:
         self.running = True
         self.enable_background = True  # Default to True
         self.use_white_logo = True  # Default to white logo
-        self.overlay_visible = True  # Show logo overlay by default; toggle with 'f'
-        self.show_preview = True  # Show preview window; set False with --no-preview
-        self.detect_every = 1  # Run face detection every N frames; set via --detect-every
+        self.overlay_visible = (
+            True  # Show logo overlay by default; toggle with 'f'
+        )
+        self.show_preview = (
+            True  # Show preview window; set False with --no-preview
+        )
+        self.detect_every = (
+            1  # Run face detection every N frames; set via --detect-every
+        )
 
         # Setup signal handlers for graceful shutdown
         signal.signal(signal.SIGINT, self._signal_handler)
@@ -62,7 +70,7 @@ class LaughingManCamera:
         """
         if not LOGO_PNG_PATH.exists():
             print(f"❌ Logo file not found: {LOGO_PNG_PATH}")
-            print("💡 The logo should be included with the project in the assets/ directory")
+            print("💡 Logo should be in the project assets/ directory")
             return False
 
         print(f"✓ Logo found: {LOGO_PNG_PATH}")
@@ -87,7 +95,10 @@ class LaughingManCamera:
 
                 if camera.isOpened():
                     # Force MJPG format to get higher FPS
-                    camera.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc("M", "J", "P", "G"))
+                    camera.set(
+                        cv2.CAP_PROP_FOURCC,
+                        cv2.VideoWriter_fourcc("M", "J", "P", "G"),
+                    )
                     camera.set(cv2.CAP_PROP_FPS, 30)
                     camera.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
                     camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
@@ -97,18 +108,21 @@ class LaughingManCamera:
                     height = int(camera.get(cv2.CAP_PROP_FRAME_HEIGHT))
                     fps = int(camera.get(cv2.CAP_PROP_FPS))
                     format_code = int(camera.get(cv2.CAP_PROP_FOURCC))
-                    format_str = "".join([chr((format_code >> 8 * i) & 0xFF) for i in range(4)])
+                    format_str = "".join(
+                        [chr((format_code >> 8 * i) & 0xFF) for i in range(4)]
+                    )
 
                     # Check if we got valid properties
                     if width > 0 and height > 0:
                         self.camera = camera
                         print(
-                            f"✓ Camera initialized: {device} ({width}x{height} @ {fps}fps, {format_str})"
+                            f"✓ Camera: {device} ({width}x{height} @ "
+                            f"{fps}fps, {format_str})"
                         )
                         return True
                     else:
                         camera.release()
-                        print(f"⚠️ {device} opened but returned invalid properties")
+                        print(f"⚠️ {device} opened but invalid properties")
                 else:
                     if camera is not None:
                         camera.release()
@@ -121,7 +135,9 @@ class LaughingManCamera:
         print("\n💡 Troubleshooting:")
         print("   1. Check which process is using the camera:")
         print("      lsof /dev/video0")
-        print("   2. Close the application (usually Chrome, Firefox, Zoom, etc.)")
+        print(
+            "   2. Close the application (usually Chrome, Firefox, Zoom, etc.)"
+        )
         print("   3. Or kill the process:")
         print("      kill -9 <PID>")
         print("\n   Common culprits:")
@@ -161,7 +177,8 @@ class LaughingManCamera:
             print(f"❌ Failed to initialize virtual camera: {e}")
             print("\n💡 Hint: Make sure v4l2loopback is loaded:")
             print(
-                "   sudo modprobe v4l2loopback devices=1 video_nr=10 card_label='Laughing-Man-Cam' exclusive_caps=1"
+                "   sudo modprobe v4l2loopback devices=1 video_nr=10 "
+                "card_label='Laughing-Man-Cam' exclusive_caps=1"
             )
             return False
 
@@ -175,7 +192,9 @@ class LaughingManCamera:
         print("🎭 Initializing face detection...")
 
         try:
-            initial_logo = LOGO_WHITE_PNG_PATH if self.use_white_logo else LOGO_PNG_PATH
+            initial_logo = (
+                LOGO_WHITE_PNG_PATH if self.use_white_logo else LOGO_PNG_PATH
+            )
             print(f"🖼️ Using initial logo: {initial_logo.name}")
 
             self.face_overlay = FaceOverlay(
@@ -185,9 +204,8 @@ class LaughingManCamera:
                 detect_every_n_frames=max(1, self.detect_every),
             )
 
-            print(
-                f"✓ Face detection initialized (Background: {'Enabled' if self.enable_background else 'Disabled'})"
-            )
+            bg = "Enabled" if self.enable_background else "Disabled"
+            print(f"✓ Face detection initialized (Background: {bg})")
             return True
 
         except Exception as e:
@@ -228,7 +246,7 @@ class LaughingManCamera:
         print("⌨️  Press 'f' to show/hide overlay (no logo)")
         print("🛑 Press 'q' or Ctrl+C to stop")
         if not self.show_preview:
-            print("💡 Preview disabled (--no-preview); keyboard shortcuts unavailable")
+            print("💡 Preview disabled (--no-preview); shortcuts unavailable")
         print("=" * 60 + "\n")
 
         if self.show_preview:
@@ -236,7 +254,9 @@ class LaughingManCamera:
             cv2.resizeWindow("Laughing Man Control", 360, 202)
 
         frame_count = 0
-        preview_update_interval = 3  # Update preview every N frames to reduce CPU
+        preview_update_interval = (
+            3  # Update preview every N frames to reduce CPU
+        )
         start_time = time.time()
         fps_display_interval = 3.0  # Display FPS every 3 seconds
         last_fps_display = start_time
@@ -279,13 +299,20 @@ class LaughingManCamera:
                         self.running = False
                     elif key == ord("t") or key == 32:  # 32 is space
                         self.use_white_logo = not self.use_white_logo
-                        new_logo = LOGO_WHITE_PNG_PATH if self.use_white_logo else LOGO_PNG_PATH
+                        new_logo = (
+                            LOGO_WHITE_PNG_PATH
+                            if self.use_white_logo
+                            else LOGO_PNG_PATH
+                        )
                         print(f"🔄 Toggling logo to: {new_logo.name}")
                         self.face_overlay.set_logo(str(new_logo))
                     elif key == ord("f"):
                         self.overlay_visible = not self.overlay_visible
-                        self.face_overlay.set_overlay_visible(self.overlay_visible)
-                        print(f"🔄 Overlay: {'ON' if self.overlay_visible else 'OFF'}")
+                        self.face_overlay.set_overlay_visible(
+                            self.overlay_visible
+                        )
+                        on_off = "ON" if self.overlay_visible else "OFF"
+                        print(f"🔄 Overlay: {on_off}")
 
         except Exception as e:
             print(f"\n❌ Error during processing: {e}")
@@ -317,14 +344,18 @@ class LaughingManCamera:
 
 def parse_args():
     """Parse command line arguments."""
-    parser = argparse.ArgumentParser(description="The Laughing Man Virtual Camera")
+    parser = argparse.ArgumentParser(
+        description="The Laughing Man Virtual Camera"
+    )
     parser.add_argument(
-        "--no-background", action="store_true", help="Disable virtual background and segmentation"
+        "--no-background",
+        action="store_true",
+        help="Disable virtual background and segmentation",
     )
     parser.add_argument(
         "--no-preview",
         action="store_true",
-        help="Do not show preview window (lower CPU usage; keyboard shortcuts unavailable)",
+        help="No preview (lower CPU; keyboard shortcuts unavailable)",
     )
     parser.add_argument(
         "--detect-every",

@@ -1,8 +1,8 @@
 """
 Face Overlay Module - The Laughing Man Virtual Camera
 
-This module provides the FaceOverlay class that handles face detection using MediaPipe
-and overlays a logo image (static PNG or animated APNG) on detected faces.
+This module provides the FaceOverlay class that handles face detection using
+MediaPipe and overlays a logo image (static PNG or animated APNG) on faces.
 """
 
 import urllib.request
@@ -30,33 +30,42 @@ class FaceOverlay:
         detect_every_n_frames: int = 1,
     ):
         """
-        Initialize the FaceOverlay with MediaPipe face detection and segmentation.
+        Initialize FaceOverlay with MediaPipe face detection and segmentation.
 
         Args:
             logo_path: Path to the logo image (must have alpha channel)
-            min_detection_confidence: Minimum confidence for face detection (0.0-1.0)
-            enable_background: Whether to enable virtual background/segmentation
-            detect_every_n_frames: Run face detection every N frames (1=every frame, 2=half the calls)
+            min_detection_confidence: Minimum confidence for face detection
+                (0.0-1.0)
+            enable_background: Enable virtual background/segmentation
+            detect_every_n_frames: Run face detection every N frames
+                (1=every frame, 2=half the calls)
         """
         self.enable_background = enable_background
         self._detect_every_n = max(1, detect_every_n_frames)
 
         # Download models if they don't exist
-        self.model_path = self._ensure_model(self.MODEL_URL, "blaze_face_short_range.tflite")
+        self.model_path = self._ensure_model(
+            self.MODEL_URL, "blaze_face_short_range.tflite"
+        )
 
         if self.enable_background:
             self.segmentation_model_path = self._ensure_model(
-                self.SEGMENTATION_MODEL_URL, "selfie_segmenter.tflite"
+                self.SEGMENTATION_MODEL_URL,
+                "selfie_segmenter.tflite",
             )
 
-        # Initialize MediaPipe Face Detection (VIDEO mode for temporal consistency)
-        base_options = mp.tasks.BaseOptions(model_asset_path=str(self.model_path))
+        # MediaPipe Face Detection (VIDEO mode for temporal consistency)
+        base_options = mp.tasks.BaseOptions(
+            model_asset_path=str(self.model_path)
+        )
         options = mp.tasks.vision.FaceDetectorOptions(
             base_options=base_options,
             min_detection_confidence=min_detection_confidence,
             running_mode=mp.tasks.vision.RunningMode.VIDEO,
         )
-        self.face_detector = mp.tasks.vision.FaceDetector.create_from_options(options)
+        self.face_detector = mp.tasks.vision.FaceDetector.create_from_options(
+            options
+        )
 
         # Detection at reduced resolution: target width for the small frame
         self._detect_width = 320
@@ -74,7 +83,9 @@ class FaceOverlay:
                 running_mode=mp.tasks.vision.RunningMode.VIDEO,
                 output_category_mask=True,
             )
-            self.segmenter = mp.tasks.vision.ImageSegmenter.create_from_options(seg_options)
+            self.segmenter = (
+                mp.tasks.vision.ImageSegmenter.create_from_options(seg_options)
+            )
 
         # Load logo (APNG animation or static PNG with alpha channel)
         self.original_logo = None
@@ -105,14 +116,17 @@ class FaceOverlay:
             self.current_background = None
             self.resized_background = None
 
-        # Cache for resized logos: (logo_size,) for static, (logo_size, frame_index) for APNG
+        # Cache for resized logos: (logo_size,) static, (logo_size, idx) APNG
         self.logo_cache = {}
         self.last_face_size = None
 
         # Smoothing state
         self.prev_bbox = None
-        self.smoothing_factor = 0.8  # Increased from 0.4 for much smoother movement
-        self.jitter_threshold = 2  # Ignore movements smaller than this (pixels)
+        # Increased from 0.4 for much smoother movement
+        self.smoothing_factor = 0.8
+        self.jitter_threshold = (
+            2  # Ignore movements smaller than this (pixels)
+        )
 
         # Overlay visibility (can be toggled at runtime to show/hide logo)
         self.overlay_visible = True
@@ -149,22 +163,32 @@ class FaceOverlay:
     def _load_logo_from_path(self, logo_path: str) -> None:
         """
         Load logo from path as APNG (if multiple frames) or static PNG.
-        Sets self.original_frames + animation_* for APNG, or self.original_logo for static.
+        Sets self.original_frames + animation_* for APNG, or
+        self.original_logo for static.
         """
         imreadanimation = getattr(cv2, "imreadanimation", None)
         if imreadanimation is not None:
             try:
                 success, animation = imreadanimation(logo_path)
-                if success and hasattr(animation, "frames") and len(animation.frames) > 1:
+                if (
+                    success
+                    and hasattr(animation, "frames")
+                    and len(animation.frames) > 1
+                ):
                     frames = [np.array(f) for f in animation.frames]
                     for i, f in enumerate(frames):
                         if f.shape[2] != 4:
                             raise ValueError(
-                                f"APNG frame {i} must have 4 channels (alpha), got {f.shape[2]}"
+                                f"APNG frame {i} must have 4 channels "
+                                f"(alpha), got {f.shape[2]}"
                             )
                     self.original_frames = frames
-                    self.animation_durations = getattr(animation, "durations", [0] * len(frames))
-                    self.animation_loop_count = getattr(animation, "loop_count", 0)
+                    self.animation_durations = getattr(
+                        animation, "durations", [0] * len(frames)
+                    )
+                    self.animation_loop_count = getattr(
+                        animation, "loop_count", 0
+                    )
                     self.current_frame_index = 0
                     return
             except Exception:
@@ -239,10 +263,12 @@ class FaceOverlay:
 
         return bg_image
 
-    def detect_face(self, frame: np.ndarray) -> tuple[int, int, int, int] | None:
+    def detect_face(
+        self, frame: np.ndarray
+    ) -> tuple[int, int, int, int] | None:
         """
-        Detect a face in the frame and return its bounding box (in full-resolution coordinates).
-        Runs the detector on a downscaled frame for performance; bbox is scaled back to full size.
+        Detect a face in the frame and return its bounding box (full-res).
+        Runs the detector on a downscaled frame; bbox is scaled back.
         """
         full_h, full_w = frame.shape[:2]
         detect_w = self._detect_width
@@ -256,18 +282,31 @@ class FaceOverlay:
             or self._detection_frame.shape[0] != detect_h
             or self._detection_frame.shape[1] != detect_w
         ):
-            self._detection_frame = np.empty((detect_h, detect_w, 3), dtype=np.uint8)
-            self._detection_rgb = np.empty((detect_h, detect_w, 3), dtype=np.uint8)
+            self._detection_frame = np.empty(
+                (detect_h, detect_w, 3), dtype=np.uint8
+            )
+            self._detection_rgb = np.empty(
+                (detect_h, detect_w, 3), dtype=np.uint8
+            )
 
         cv2.resize(
-            frame, (detect_w, detect_h), dst=self._detection_frame, interpolation=cv2.INTER_LINEAR
+            frame,
+            (detect_w, detect_h),
+            dst=self._detection_frame,
+            interpolation=cv2.INTER_LINEAR,
         )
-        cv2.cvtColor(self._detection_frame, cv2.COLOR_BGR2RGB, dst=self._detection_rgb)
-        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=self._detection_rgb)
+        cv2.cvtColor(
+            self._detection_frame, cv2.COLOR_BGR2RGB, dst=self._detection_rgb
+        )
+        mp_image = mp.Image(
+            image_format=mp.ImageFormat.SRGB, data=self._detection_rgb
+        )
 
         # VIDEO mode requires monotonic timestamp in ms (~30 fps)
         self._video_timestamp_ms += 33 * self._detect_every_n
-        detection_result = self.face_detector.detect_for_video(mp_image, self._video_timestamp_ms)
+        detection_result = self.face_detector.detect_for_video(
+            mp_image, self._video_timestamp_ms
+        )
 
         if not detection_result.detections:
             self.prev_bbox = None
@@ -299,10 +338,22 @@ class FaceOverlay:
             ):
                 x, y, width, height = prev_x, prev_y, prev_w, prev_h
             else:
-                x = int(prev_x * self.smoothing_factor + x * (1 - self.smoothing_factor))
-                y = int(prev_y * self.smoothing_factor + y * (1 - self.smoothing_factor))
-                width = int(prev_w * self.smoothing_factor + width * (1 - self.smoothing_factor))
-                height = int(prev_h * self.smoothing_factor + height * (1 - self.smoothing_factor))
+                x = int(
+                    prev_x * self.smoothing_factor
+                    + x * (1 - self.smoothing_factor)
+                )
+                y = int(
+                    prev_y * self.smoothing_factor
+                    + y * (1 - self.smoothing_factor)
+                )
+                width = int(
+                    prev_w * self.smoothing_factor
+                    + width * (1 - self.smoothing_factor)
+                )
+                height = int(
+                    prev_h * self.smoothing_factor
+                    + height * (1 - self.smoothing_factor)
+                )
 
         self.prev_bbox = (x, y, width, height)
         return (x, y, width, height)
@@ -348,14 +399,18 @@ class FaceOverlay:
         overlay_alpha = overlay_crop[:, :, 3:4] / 255.0
 
         # Blend the images
-        blended = (overlay_bgr * overlay_alpha + roi * (1 - overlay_alpha)).astype(np.uint8)
+        blended = (
+            overlay_bgr * overlay_alpha + roi * (1 - overlay_alpha)
+        ).astype(np.uint8)
 
         # Update the background
         background[y1:y2, x1:x2] = blended
 
         return background
 
-    def overlay_logo(self, frame: np.ndarray, face_bbox: tuple[int, int, int, int]) -> np.ndarray:
+    def overlay_logo(
+        self, frame: np.ndarray, face_bbox: tuple[int, int, int, int]
+    ) -> np.ndarray:
         """
         Overlay the logo (static or APNG animation) on the detected face.
 
@@ -401,13 +456,15 @@ class FaceOverlay:
         overlay_x = center_x - logo_size // 2
         overlay_y = center_y - logo_size // 2 - y_offset
 
-        result = self._overlay_image_alpha(frame, resized_logo, overlay_x, overlay_y)
+        result = self._overlay_image_alpha(
+            frame, resized_logo, overlay_x, overlay_y
+        )
         return result
 
     def _segment_and_replace_background(self, frame: np.ndarray) -> np.ndarray:
         """
         Segment the person and replace the background.
-        Runs segmentation at reduced resolution for performance; mask is upscaled to full size.
+        Runs at reduced resolution for performance; mask is upscaled.
         """
         if self.current_background is None:
             return frame
@@ -422,7 +479,9 @@ class FaceOverlay:
             or self.resized_background.shape[0] != height
             or self.resized_background.shape[1] != width
         ):
-            self.resized_background = cv2.resize(self.current_background, (width, height))
+            self.resized_background = cv2.resize(
+                self.current_background, (width, height)
+            )
 
         # Allocate or reuse reduced-resolution buffers for segmentation
         if (
@@ -432,12 +491,21 @@ class FaceOverlay:
         ):
             self._seg_frame = np.empty((seg_h, seg_w, 3), dtype=np.uint8)
             self._seg_rgb = np.empty((seg_h, seg_w, 3), dtype=np.uint8)
-        cv2.resize(frame, (seg_w, seg_h), dst=self._seg_frame, interpolation=cv2.INTER_LINEAR)
+        cv2.resize(
+            frame,
+            (seg_w, seg_h),
+            dst=self._seg_frame,
+            interpolation=cv2.INTER_LINEAR,
+        )
         cv2.cvtColor(self._seg_frame, cv2.COLOR_BGR2RGB, dst=self._seg_rgb)
-        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=self._seg_rgb)
+        mp_image = mp.Image(
+            image_format=mp.ImageFormat.SRGB, data=self._seg_rgb
+        )
 
         self._seg_timestamp_ms += 33
-        segmentation_result = self.segmenter.segment_for_video(mp_image, self._seg_timestamp_ms)
+        segmentation_result = self.segmenter.segment_for_video(
+            mp_image, self._seg_timestamp_ms
+        )
         mask_np = segmentation_result.category_mask.numpy_view()
 
         # Binary mask: background = 1, person = 0
@@ -455,25 +523,31 @@ class FaceOverlay:
             self._frame_float = np.empty((height, width, 3), dtype=np.float32)
             self._bg_float = np.empty((height, width, 3), dtype=np.float32)
         cv2.resize(
-            bg_mask_small, (width, height), dst=self._mask_full, interpolation=cv2.INTER_LINEAR
+            bg_mask_small,
+            (width, height),
+            dst=self._mask_full,
+            interpolation=cv2.INTER_LINEAR,
         )
         self._mask_3ch[:, :, 0] = self._mask_full
 
         self._frame_float[:] = frame
         self._bg_float[:] = self.resized_background
         # Composite: person = frame, background = wall
-        output = self._frame_float * (1.0 - self._mask_3ch) + self._bg_float * self._mask_3ch
+        output = (
+            self._frame_float * (1.0 - self._mask_3ch)
+            + self._bg_float * self._mask_3ch
+        )
         return output.astype(np.uint8)
 
     def process_frame(self, frame: np.ndarray) -> np.ndarray:
         """
-        Process a frame: segment person, replace background, detect face, and apply logo overlay.
+        Process frame: segment, replace background, detect face, apply logo.
 
         Args:
             frame: Input frame (BGR format)
 
         Returns:
-            Processed frame with background replacement and logo overlay (or without overlay if overlay_visible is False)
+            Processed frame with background and logo (or without if hidden).
         """
         frame_with_bg = frame
 
@@ -500,7 +574,8 @@ class FaceOverlay:
         Show or hide the logo overlay at runtime.
 
         Args:
-            visible: True to draw the logo on the face, False to show only the camera (and optional background).
+            visible: True to draw logo on face, False for camera only
+                (and optional background).
         """
         self.overlay_visible = visible
         if not visible:
@@ -526,7 +601,8 @@ class FaceOverlay:
         self.logo_cache.clear()
         name = Path(logo_path).name
         if self.original_frames is not None:
-            print(f"✓ Logo updated to {name} ({len(self.original_frames)} frames)")
+            n = len(self.original_frames)
+            print(f"✓ Logo updated to {name} ({n} frames)")
         else:
             print(f"✓ Logo updated to: {name}")
 
