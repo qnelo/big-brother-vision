@@ -8,8 +8,7 @@ and overlays a logo image (static PNG or animated APNG) on detected faces.
 import cv2
 import mediapipe as mp
 import numpy as np
-import os
-import json
+
 import time
 import urllib.request
 from pathlib import Path

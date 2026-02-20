@@ -10,15 +10,12 @@ Author: qnelo
 License: MIT
 """
 
-import os
 import signal
 import sys
 import time
 from pathlib import Path
-from typing import Optional
 
 import cv2
-import numpy as np
 import pyvirtualcam
 
 from face_overlay import FaceOverlay
@@ -27,7 +24,7 @@ from face_overlay import FaceOverlay
 # Configuration
 ASSETS_DIR = Path(__file__).parent / "assets"
 LOGO_PNG_PATH = ASSETS_DIR / "laughing_man_video_transparent.png"
-LOGO_WHITE_PNG_PATH = ASSETS_DIR / "laughing_man_video_white_v2.png"
+LOGO_WHITE_PNG_PATH = ASSETS_DIR / "laughing_man_video_white.png"
 CAMERA_DEVICE = "/dev/video0"  # Physical camera
 VIRTUAL_DEVICE = "/dev/video10"  # Virtual camera (must match v4l2loopback device)
 TARGET_FPS = 30
