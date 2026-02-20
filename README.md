@@ -16,12 +16,13 @@ This project creates a virtual camera filter that detects your face in real-time
 
 ## ✨ Features
 
-- 🎯 **Face detection** with MediaPipe (high precision and performance)
-- 🔄 **Continuous rotation** of the logo (faithful to the anime)
-- 🎨 **Alpha blending** for perfect transparency
-- 📹 **Virtual camera** compatible with video calling applications
-- ⚡ **Optimized** for consistent 30 FPS
-- 🎭 **Automatic download** of the logo from the official source
+- 🎯 **Face detection** with MediaPipe (BlazeFace, high precision and performance)
+- 🎨 **Alpha blending** for perfect transparency of the logo
+- 📹 **Virtual camera** compatible with Google Meet, Zoom and other video calling apps
+- ⚡ **Optimized** for consistent 30 FPS (detection at reduced resolution, optional `--detect-every`)
+- 🖼️ **Virtual background** (optional): selfie segmentation and replace background with images (`wall*.jpg` in `assets/`)
+- 🎭 **Toggle logo style** (white / transparent) and **show/hide overlay** at runtime via keyboard
+- 📥 **Automatic download** of MediaPipe models (face detector and selfie segmenter) on first run
 
 ## 🔧 System Requirements
 
@@ -44,7 +45,8 @@ For detailed step-by-step instructions, see [INSTALL.md](INSTALL.md).
 
 ```bash
 # 1. Clone the repository
-cd /home/qnelo/develop/personal/thelaughing-man
+git clone https://github.com/your-user/the-laughing-man.git
+cd the-laughing-man
 
 # 2. Load the v4l2loopback module
 sudo modprobe v4l2loopback devices=1 video_nr=10 card_label="Laughing-Man-Cam" exclusive_caps=1
@@ -88,12 +90,19 @@ python main.py
 ## 📊 Performance
 
 The system is optimized to maintain a constant 30 FPS:
-- ✅ Face detection using MediaPipe's lightweight model
+- ✅ Face detection at reduced resolution (320px width) with MediaPipe BlazeFace
+- ✅ Optional detection every N frames (`--detect-every`) to reduce CPU load
 - ✅ Resized logo caching
 - ✅ Optimized alpha blending with NumPy
-- ✅ Efficient rotation with OpenCV
+- ✅ Segmentation at half resolution when virtual background is enabled
 
 ## 🔧 Advanced Configuration
+
+### Command line options
+
+- `--no-background`: Disable virtual background and segmentation (camera only + logo overlay).
+- `--no-preview`: Do not show preview window (lower CPU; keyboard shortcuts unavailable).
+- `--detect-every N`: Run face detection every N frames (e.g. `2` for less CPU usage).
 
 ### Change the virtual camera device
 

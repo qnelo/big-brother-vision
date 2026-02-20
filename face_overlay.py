@@ -9,7 +9,6 @@ import cv2
 import mediapipe as mp
 import numpy as np
 
-import time
 import urllib.request
 from pathlib import Path
 from typing import Optional, Tuple, List
@@ -24,16 +23,24 @@ class FaceOverlay:
     # Model URL for MediaPipe selfie segmentation
     SEGMENTATION_MODEL_URL = "https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/1/selfie_segmenter.tflite"
     
-    def __init__(self, logo_path: str, min_detection_confidence: float = 0.5, enable_background: bool = True):
+    def __init__(
+        self,
+        logo_path: str,
+        min_detection_confidence: float = 0.5,
+        enable_background: bool = True,
+        detect_every_n_frames: int = 1,
+    ):
         """
         Initialize the FaceOverlay with MediaPipe face detection and segmentation.
-        
+
         Args:
             logo_path: Path to the logo image (must have alpha channel)
             min_detection_confidence: Minimum confidence for face detection (0.0-1.0)
             enable_background: Whether to enable virtual background/segmentation
+            detect_every_n_frames: Run face detection every N frames (1=every frame, 2=half the calls)
         """
         self.enable_background = enable_background
+        self._detect_every_n = max(1, detect_every_n_frames)
         
         # Download models if they don't exist
         self.model_path = self._ensure_model(self.MODEL_URL, "blaze_face_short_range.tflite")
@@ -41,13 +48,20 @@ class FaceOverlay:
         if self.enable_background:
             self.segmentation_model_path = self._ensure_model(self.SEGMENTATION_MODEL_URL, "selfie_segmenter.tflite")
         
-        # Initialize MediaPipe Face Detection
+        # Initialize MediaPipe Face Detection (VIDEO mode for temporal consistency)
         base_options = mp.tasks.BaseOptions(model_asset_path=str(self.model_path))
         options = mp.tasks.vision.FaceDetectorOptions(
             base_options=base_options,
-            min_detection_confidence=min_detection_confidence
+            min_detection_confidence=min_detection_confidence,
+            running_mode=mp.tasks.vision.RunningMode.VIDEO,
         )
         self.face_detector = mp.tasks.vision.FaceDetector.create_from_options(options)
+
+        # Detection at reduced resolution: target width for the small frame
+        self._detect_width = 320
+        self._detection_frame = None  # BGR buffer, (detect_h, detect_w, 3)
+        self._detection_rgb = None   # RGB buffer for MediaPipe
+        self._video_timestamp_ms = 0  # Monotonic timestamp for VIDEO mode
         
         # Initialize MediaPipe Image Segmenter (only if enabled)
         if self.enable_background:
@@ -73,6 +87,15 @@ class FaceOverlay:
             self.current_bg_index = self._load_last_bg_index()
             self.current_background = self._load_next_background()
             self.resized_background = None
+            # Segmentation at reduced resolution + reusable buffers
+            self._seg_scale = 0.5  # segment at half size
+            self._seg_frame = None
+            self._seg_rgb = None
+            self._mask_full = None
+            self._seg_timestamp_ms = 0
+            self._frame_float = None
+            self._bg_float = None
+            self._mask_3ch = None
         else:
             self.background_images = []
             self.current_bg_index = -1
@@ -90,6 +113,10 @@ class FaceOverlay:
 
         # Overlay visibility (can be toggled at runtime to show/hide logo)
         self.overlay_visible = True
+
+        # Reuse last bbox when not running detection this frame
+        self._last_face_bbox = None
+        self._process_frame_count = 0
     
     def _ensure_model(self, url: str, filename: str) -> Path:
         """
@@ -215,60 +242,59 @@ class FaceOverlay:
     
     def detect_face(self, frame: np.ndarray) -> Optional[Tuple[int, int, int, int]]:
         """
-        Detect a face in the frame and return its bounding box.
-        
-        Args:
-            frame: Input frame (BGR format)
-            
-        Returns:
-            Tuple of (x, y, width, height) if face detected, None otherwise
+        Detect a face in the frame and return its bounding box (in full-resolution coordinates).
+        Runs the detector on a downscaled frame for performance; bbox is scaled back to full size.
         """
-        # Convert BGR to RGB for MediaPipe
-        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        
-        # Create MediaPipe Image object
-        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
-        
-        # Process the frame
-        detection_result = self.face_detector.detect(mp_image)
-        
+        full_h, full_w = frame.shape[:2]
+        detect_w = self._detect_width
+        detect_h = int(full_h * detect_w / full_w)
+        if detect_h < 1:
+            detect_h = 1
+
+        # Reuse or allocate buffers for reduced-resolution detection
+        if self._detection_frame is None or self._detection_frame.shape[0] != detect_h or self._detection_frame.shape[1] != detect_w:
+            self._detection_frame = np.empty((detect_h, detect_w, 3), dtype=np.uint8)
+            self._detection_rgb = np.empty((detect_h, detect_w, 3), dtype=np.uint8)
+
+        cv2.resize(frame, (detect_w, detect_h), dst=self._detection_frame, interpolation=cv2.INTER_LINEAR)
+        cv2.cvtColor(self._detection_frame, cv2.COLOR_BGR2RGB, dst=self._detection_rgb)
+        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=self._detection_rgb)
+
+        # VIDEO mode requires monotonic timestamp in ms (~30 fps)
+        self._video_timestamp_ms += 33 * self._detect_every_n
+        detection_result = self.face_detector.detect_for_video(mp_image, self._video_timestamp_ms)
+
         if not detection_result.detections:
-            self.prev_bbox = None  # Reset smoothing if lost face
+            self.prev_bbox = None
             return None
-        
-        # Get the first detected face
+
         detection = detection_result.detections[0]
         bbox = detection.bounding_box
-        
-        # Convert to absolute coordinates
-        x = bbox.origin_x
-        y = bbox.origin_y
-        width = bbox.width
-        height = bbox.height
-        
-        # Apply smoothing if we have a previous detection
+        scale_x = full_w / detect_w
+        scale_y = full_h / detect_h
+
+        # Scale bbox from small frame to full resolution
+        x = int(bbox.origin_x * scale_x)
+        y = int(bbox.origin_y * scale_y)
+        width = int(bbox.width * scale_x)
+        height = int(bbox.height * scale_y)
+
+        # Apply smoothing in full-resolution coordinates
         if self.prev_bbox is not None:
             prev_x, prev_y, prev_w, prev_h = self.prev_bbox
-            
-            # check if the change is significant enough (anti-jitter)
             dx = abs(x - prev_x)
             dy = abs(y - prev_y)
             dw = abs(width - prev_w)
             dh = abs(height - prev_h)
-            
-            if dx < self.jitter_threshold and dy < self.jitter_threshold and \
-               dw < self.jitter_threshold and dh < self.jitter_threshold:
-                # If change is very small, keep previous box to avoid micro-jitter
+            if dx < self.jitter_threshold and dy < self.jitter_threshold and dw < self.jitter_threshold and dh < self.jitter_threshold:
                 x, y, width, height = prev_x, prev_y, prev_w, prev_h
             else:
-                # Smooth coordinates using exponential moving average
                 x = int(prev_x * self.smoothing_factor + x * (1 - self.smoothing_factor))
                 y = int(prev_y * self.smoothing_factor + y * (1 - self.smoothing_factor))
                 width = int(prev_w * self.smoothing_factor + width * (1 - self.smoothing_factor))
                 height = int(prev_h * self.smoothing_factor + height * (1 - self.smoothing_factor))
-        
+
         self.prev_bbox = (x, y, width, height)
-        
         return (x, y, width, height)
     
     def _overlay_image_alpha(
@@ -355,8 +381,8 @@ class FaceOverlay:
             current_logo = self.original_logo
             cache_key = logo_size
 
-        # Resize with cache
-        if len(self.logo_cache) > 60:
+        # Resize with cache (cap size to limit memory)
+        if len(self.logo_cache) > 45:
             self.logo_cache.clear()
         if cache_key not in self.logo_cache:
             self.logo_cache[cache_key] = cv2.resize(
@@ -379,70 +405,48 @@ class FaceOverlay:
     def _segment_and_replace_background(self, frame: np.ndarray) -> np.ndarray:
         """
         Segment the person and replace the background.
-        
-        Args:
-            frame: Input frame (BGR)
-            
-        Returns:
-            Frame with background replaced
+        Runs segmentation at reduced resolution for performance; mask is upscaled to full size.
         """
         if self.current_background is None:
             return frame
-            
+
         height, width = frame.shape[:2]
-        
+        seg_w = max(1, int(width * self._seg_scale))
+        seg_h = max(1, int(height * self._seg_scale))
+
         # Resize background if needed (cache it)
-        if self.resized_background is None or \
-           self.resized_background.shape[0] != height or \
-           self.resized_background.shape[1] != width:
+        if self.resized_background is None or self.resized_background.shape[0] != height or self.resized_background.shape[1] != width:
             self.resized_background = cv2.resize(self.current_background, (width, height))
-            
-        # Convert to RGB for MediaPipe
-        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
-        
-        # Run segmentation
-        # We use current time in ms as timestamp
-        timestamp_ms = int(time.time() * 1000)
-        segmentation_result = self.segmenter.segment_for_video(mp_image, timestamp_ms)
-        
-        # Get category mask
-        category_mask = segmentation_result.category_mask
-        
-        # Convert to numpy array
-        mask_np = category_mask.numpy_view()
-        
-        # Create binary mask
-        # Based on user report, the previous logic (mask > 0.1 -> person) resulted in "wall on person".
-        # This implies that (mask > 0.1) actually identified the area where we wanted the WALL 
-        # (or the composition was flipped).
-        # Previous: frame * mask + bg * (1-mask)
-        # If mask was "Wall on Person", then mask was 0 on Person and 1 on Bg? 
-        # No, if mask was 0 on person, then term 2 (bg * 1) would show wall on person.
-        # So "mask > 0.1" is likely 0 for person and 1 for background (255).
-        # We want: Frame on Person (mask=0), Wall on Background (mask=1).
-        # So: frame * (1 - mask) + bg * mask
-        
-        # Let's define bg_mask clearly
-        # Assuming 255 is background and 0 is person
-        bg_mask = (mask_np > 0.1).astype(np.float32)
-        
-        # Apply slight blur to mask for softer edges
-        # Blur before expanding dims to avoid OpenCV error with 3D input
-        bg_mask = cv2.GaussianBlur(bg_mask, (5, 5), 0)
-        
-        # Expand dimensions for broadcasting (H, W) -> (H, W, 1)
-        bg_mask = np.expand_dims(bg_mask, axis=-1)
-            
-        # Composite
-        # We want: 
-        # - Where bg_mask is 1 (Background): Show Wall (bg_float)
-        # - Where bg_mask is 0 (Person): Show Camera (frame_float)
-        frame_float = frame.astype(np.float32)
-        bg_float = self.resized_background.astype(np.float32)
-        
-        output = frame_float * (1.0 - bg_mask) + bg_float * bg_mask
-        
+
+        # Allocate or reuse reduced-resolution buffers for segmentation
+        if self._seg_frame is None or self._seg_frame.shape[0] != seg_h or self._seg_frame.shape[1] != seg_w:
+            self._seg_frame = np.empty((seg_h, seg_w, 3), dtype=np.uint8)
+            self._seg_rgb = np.empty((seg_h, seg_w, 3), dtype=np.uint8)
+        cv2.resize(frame, (seg_w, seg_h), dst=self._seg_frame, interpolation=cv2.INTER_LINEAR)
+        cv2.cvtColor(self._seg_frame, cv2.COLOR_BGR2RGB, dst=self._seg_rgb)
+        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=self._seg_rgb)
+
+        self._seg_timestamp_ms += 33
+        segmentation_result = self.segmenter.segment_for_video(mp_image, self._seg_timestamp_ms)
+        mask_np = segmentation_result.category_mask.numpy_view()
+
+        # Binary mask: background = 1, person = 0
+        bg_mask_small = (mask_np > 0.1).astype(np.float32)
+        bg_mask_small = cv2.GaussianBlur(bg_mask_small, (3, 3), 0)
+
+        # Upscale mask to full resolution and reuse buffer
+        if self._mask_full is None or self._mask_full.shape[0] != height or self._mask_full.shape[1] != width:
+            self._mask_full = np.empty((height, width), dtype=np.float32)
+            self._mask_3ch = np.empty((height, width, 1), dtype=np.float32)
+            self._frame_float = np.empty((height, width, 3), dtype=np.float32)
+            self._bg_float = np.empty((height, width, 3), dtype=np.float32)
+        cv2.resize(bg_mask_small, (width, height), dst=self._mask_full, interpolation=cv2.INTER_LINEAR)
+        self._mask_3ch[:, :, 0] = self._mask_full
+
+        self._frame_float[:] = frame
+        self._bg_float[:] = self.resized_background
+        # Composite: person = frame, background = wall
+        output = self._frame_float * (1.0 - self._mask_3ch) + self._bg_float * self._mask_3ch
         return output.astype(np.uint8)
 
     def process_frame(self, frame: np.ndarray) -> np.ndarray:
@@ -463,11 +467,13 @@ class FaceOverlay:
         
         # 2. Detect face and overlay logo only when overlay is visible
         if self.overlay_visible:
-            face_bbox = self.detect_face(frame)
+            self._process_frame_count += 1
+            if self._process_frame_count % self._detect_every_n == 0 or self._last_face_bbox is None:
+                self._last_face_bbox = self.detect_face(frame)
+            face_bbox = self._last_face_bbox
             if face_bbox is not None:
-                # 3. Overlay logo
                 frame_with_bg = self.overlay_logo(frame_with_bg, face_bbox)
-        
+
         return frame_with_bg
 
     def set_overlay_visible(self, visible: bool) -> None:
@@ -478,6 +484,8 @@ class FaceOverlay:
             visible: True to draw the logo on the face, False to show only the camera (and optional background).
         """
         self.overlay_visible = visible
+        if not visible:
+            self._last_face_bbox = None
     
     def set_logo(self, logo_path: str):
         """

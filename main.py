@@ -41,6 +41,8 @@ class LaughingManCamera:
         self.enable_background = True  # Default to True
         self.use_white_logo = True  # Default to white logo
         self.overlay_visible = True  # Show logo overlay by default; toggle with 'f'
+        self.show_preview = True  # Show preview window; set False with --no-preview
+        self.detect_every = 1  # Run face detection every N frames; set via --detect-every
         
         # Setup signal handlers for graceful shutdown
         signal.signal(signal.SIGINT, self._signal_handler)
@@ -175,7 +177,8 @@ class LaughingManCamera:
             self.face_overlay = FaceOverlay(
                 logo_path=str(initial_logo),
                 min_detection_confidence=0.5,
-                enable_background=self.enable_background
+                enable_background=self.enable_background,
+                detect_every_n_frames=max(1, self.detect_every),
             )
             
             print(f"✓ Face detection initialized (Background: {'Enabled' if self.enable_background else 'Disabled'})")
@@ -218,13 +221,16 @@ class LaughingManCamera:
         print(f"⌨️  Press 't' or SPACE to toggle logo color")
         print(f"⌨️  Press 'f' to show/hide overlay (no logo)")
         print(f"🛑 Press 'q' or Ctrl+C to stop")
+        if not self.show_preview:
+            print(f"💡 Preview disabled (--no-preview); keyboard shortcuts unavailable")
         print("="*60 + "\n")
-        
-        # Create a window for input capture
-        cv2.namedWindow("Laughing Man Control", cv2.WINDOW_NORMAL)
-        cv2.resizeWindow("Laughing Man Control", 360, 202)
-        
+
+        if self.show_preview:
+            cv2.namedWindow("Laughing Man Control", cv2.WINDOW_NORMAL)
+            cv2.resizeWindow("Laughing Man Control", 360, 202)
+
         frame_count = 0
+        preview_update_interval = 3  # Update preview every N frames to reduce CPU
         start_time = time.time()
         fps_display_interval = 3.0  # Display FPS every 3 seconds
         last_fps_display = start_time
@@ -258,26 +264,22 @@ class LaughingManCamera:
                 # Small delay to achieve target FPS
                 self.virtual_cam.sleep_until_next_frame()
 
-                # Show preview and capture input
-                cv2.imshow("Laughing Man Control", processed_frame)
-                key = cv2.waitKey(1) & 0xFF
-                
-                # Check for 'q' to quit
-                if key == ord('q'):
-                    self.running = False
-                    
-                # Check for 't' or space to toggle logo
-                elif key == ord('t') or key == 32:  # 32 is space
-                    self.use_white_logo = not self.use_white_logo
-                    new_logo = LOGO_WHITE_PNG_PATH if self.use_white_logo else LOGO_PNG_PATH
-                    print(f"🔄 Toggling logo to: {new_logo.name}")
-                    self.face_overlay.set_logo(str(new_logo))
-
-                # Check for 'f' to toggle overlay on/off (show or hide logo completely)
-                elif key == ord('f'):
-                    self.overlay_visible = not self.overlay_visible
-                    self.face_overlay.set_overlay_visible(self.overlay_visible)
-                    print(f"🔄 Overlay: {'ON' if self.overlay_visible else 'OFF'}")
+                # Preview and keyboard input (only when preview enabled)
+                if self.show_preview:
+                    if frame_count % preview_update_interval == 0:
+                        cv2.imshow("Laughing Man Control", processed_frame)
+                    key = cv2.waitKey(1) & 0xFF
+                    if key == ord('q'):
+                        self.running = False
+                    elif key == ord('t') or key == 32:  # 32 is space
+                        self.use_white_logo = not self.use_white_logo
+                        new_logo = LOGO_WHITE_PNG_PATH if self.use_white_logo else LOGO_PNG_PATH
+                        print(f"🔄 Toggling logo to: {new_logo.name}")
+                        self.face_overlay.set_logo(str(new_logo))
+                    elif key == ord('f'):
+                        self.overlay_visible = not self.overlay_visible
+                        self.face_overlay.set_overlay_visible(self.overlay_visible)
+                        print(f"🔄 Overlay: {'ON' if self.overlay_visible else 'OFF'}")
         
         except Exception as e:
             print(f"\n❌ Error during processing: {e}")
@@ -314,20 +316,29 @@ def parse_args():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(description="The Laughing Man Virtual Camera")
     parser.add_argument("--no-background", action="store_true", help="Disable virtual background and segmentation")
+    parser.add_argument(
+        "--no-preview",
+        action="store_true",
+        help="Do not show preview window (lower CPU usage; keyboard shortcuts unavailable)",
+    )
+    parser.add_argument(
+        "--detect-every",
+        type=int,
+        default=1,
+        metavar="N",
+        help="Run face detection every N frames (2=less CPU)",
+    )
     return parser.parse_args()
 
 def main():
     """Entry point for the application."""
     args = parse_args()
-    
+
     app = LaughingManCamera()
-    
-    # We need to pass the background setting to the app/overlay
-    # Since LaughingManCamera initializes FaceOverlay internally, 
-    # we should likely pass arguments to LaughingManCamera or handle it there.
-    # Let's modify LaughingManCamera.__init__ to accept args or config.
     app.enable_background = not args.no_background
-    
+    app.show_preview = not args.no_preview
+    app.detect_every = args.detect_every
+
     sys.exit(app.run())
 
 
