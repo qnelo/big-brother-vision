@@ -57,6 +57,8 @@ fi
 # 3. Run the application
 echo -e "\n${GREEN}🚀 Starting application...${NC}"
 echo "================================================"
+echo -e "${BLUE}⌨️  Controls: t/Space = logo style | f = show/hide overlay | q = quit${NC}"
+echo "================================================"
 
 # Ask user if they want to enable the virtual background
 EXTRA_ARGS=""
