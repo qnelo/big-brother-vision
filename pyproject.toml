@@ -1,7 +1,7 @@
 [project]
-name = "laughing-man-cam"
-version = "0.1.0"
-description = "Virtual camera filter that overlays the iconic 'Laughing Man' logo on your face in real-time for Google Meet"
+name = "big-brother-vision"
+version = "0.2.0"
+description = "Virtual surveillance camera with fighter-jet HUD and real-time emotion metrics"
 authors = [
     {name = "qnelo"}
 ]
@@ -20,7 +20,7 @@ dev = [
 ]
 
 [project.scripts]
-laughing-man = "main:main"
+big-brother-vision = "main:main"
 
 [build-system]
 requires = ["hatchling"]
@@ -28,12 +28,14 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["."]
-only-include = ["main.py", "face_overlay.py"]
+only-include = [
+    "main.py",
+    "vision_pipeline.py",
+    "emotion_mapper.py",
+    "face_tracker.py",
+    "hud_renderer.py",
+]
 
-# -----------------------------------------------------------------------------
-# Ruff: linter + formatter (PEP 8 style guide)
-# https://docs.astral.sh/ruff/configuration/
-# -----------------------------------------------------------------------------
 [tool.ruff]
 line-length = 79
 target-version = "py310"
@@ -41,37 +43,26 @@ src = ["."]
 exclude = [".git", "__pycache__", "*.egg-info", ".venv", "venv"]
 
 [tool.ruff.lint]
-# Rule sets (PEP 8 and best practices):
-#   E, W   - pycodestyle (PEP 8: errors + warnings)
-#   F      - Pyflakes (undefined names, unused imports)
-#   I      - isort (import sorting)
-#   N      - pep8-naming (naming conventions)
-#   UP     - pyupgrade (modern Python syntax)
-#   B      - flake8-bugbear (common bugs)
-#   C4     - flake8-comprehensions (simplify comprehensions)
-#   SIM    - flake8-simplify (simplify code)
 select = [
-    "E",   # pycodestyle errors
-    "W",   # pycodestyle warnings
-    "F",   # Pyflakes
-    "I",   # isort
-    "N",   # pep8-naming
-    "UP",  # pyupgrade
-    "B",   # bugbear
-    "C4",  # comprehensions
-    "SIM", # simplify
+    "E",
+    "W",
+    "F",
+    "I",
+    "N",
+    "UP",
+    "B",
+    "C4",
+    "SIM",
 ]
 ignore = [
-    "B008",   # do not perform function calls in argument defaults
-    "B904",   # raise without from inside except
+    "B008",
+    "B904",
 ]
 
 [tool.ruff.lint.per-file-ignores]
-# Tests and examples can be more permissive
-"tests/*" = ["S101"]  # allow assert
+"tests/*" = ["S101"]
 
 [tool.ruff.format]
-# Format on save will use these (PEP 8–aligned style)
 quote-style = "double"
 indent-style = "space"
 skip-magic-trailing-comma = false

@@ -1,13 +1,9 @@
 #!/usr/bin/env python3
 """
-The Laughing Man Virtual Camera
+Big Brother Vision - Virtual Surveillance Camera
 
-A virtual camera filter that overlays the iconic "Laughing Man" logo from
-Ghost in the Shell on your face in real-time, compatible with Google Meet and
-other video conferencing applications.
-
-Author: qnelo
-License: MIT
+Real-time multi-face tracking with fighter-jet HUD overlays for Linux
+virtual camera (v4l2loopback + pyvirtualcam).
 """
 
 import argparse
@@ -19,142 +15,71 @@ from pathlib import Path
 import cv2
 import pyvirtualcam
 
-from face_overlay import FaceOverlay
+from vision_pipeline import VisionPipeline
 
-# Configuration
 ASSETS_DIR = Path(__file__).parent / "assets"
-LOGO_PNG_PATH = ASSETS_DIR / "laughing_man_video_transparent.png"
-LOGO_WHITE_PNG_PATH = ASSETS_DIR / "laughing_man_video_white.png"
-CAMERA_DEVICE = "/dev/video0"  # Physical camera
-VIRTUAL_DEVICE = (
-    "/dev/video10"  # Virtual camera (must match v4l2loopback device)
-)
+CAMERA_DEVICE = "/dev/video0"
+VIRTUAL_DEVICE = "/dev/video10"
 TARGET_FPS = 30
 
 
-class LaughingManCamera:
-    """Main application class for the Laughing Man virtual camera."""
+class BigBrotherCamera:
+    """Main application for Big Brother Vision virtual camera."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.camera = None
         self.virtual_cam = None
-        self.face_overlay = None
+        self.pipeline: VisionPipeline | None = None
         self.running = True
-        self.enable_background = True  # Default to True
-        self.use_white_logo = True  # Default to white logo
-        self.overlay_visible = (
-            True  # Show logo overlay by default; toggle with 'f'
-        )
-        self.show_preview = (
-            True  # Show preview window; set False with --no-preview
-        )
-        self.detect_every = (
-            1  # Run face detection every N frames; set via --detect-every
-        )
+        self.show_preview = True
+        self.detect_every = 1
+        self.max_faces = 4
+        self.hud_color = "green"
+        self.hud_visible = True
 
-        # Setup signal handlers for graceful shutdown
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
 
-    def _signal_handler(self, signum, frame):
-        """Handle shutdown signals gracefully."""
-        print("\n🛑 Shutting down gracefully...")
+    def _signal_handler(self, signum, frame) -> None:
+        print("\nShutting down gracefully...")
         self.running = False
 
-    def verify_logo(self) -> bool:
-        """
-        Verify that the logo file exists.
-
-        Returns:
-            True if logo exists, False otherwise
-        """
-        if not LOGO_PNG_PATH.exists():
-            print(f"❌ Logo file not found: {LOGO_PNG_PATH}")
-            print("💡 Logo should be in the project assets/ directory")
-            return False
-
-        print(f"✓ Logo found: {LOGO_PNG_PATH}")
-        return True
-
     def initialize_camera(self) -> bool:
-        """
-        Initialize the physical camera.
-
-        Returns:
-            True if successful, False otherwise
-        """
-        # Try multiple camera devices in order
         camera_devices = ["/dev/video0", "/dev/video1", "/dev/video2"]
 
         for device in camera_devices:
-            print(f"📷 Trying camera: {device}...")
-
+            print(f"Trying camera: {device}...")
             try:
-                # Open with V4L2 backend
                 camera = cv2.VideoCapture(device, cv2.CAP_V4L2)
+                if not camera.isOpened():
+                    camera.release()
+                    continue
 
-                if camera.isOpened():
-                    # Force MJPG format to get higher FPS
-                    camera.set(
-                        cv2.CAP_PROP_FOURCC,
-                        cv2.VideoWriter_fourcc("M", "J", "P", "G"),
-                    )
-                    camera.set(cv2.CAP_PROP_FPS, 30)
-                    camera.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
-                    camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+                camera.set(
+                    cv2.CAP_PROP_FOURCC,
+                    cv2.VideoWriter_fourcc("M", "J", "P", "G"),
+                )
+                camera.set(cv2.CAP_PROP_FPS, 30)
+                camera.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+                camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
 
-                    # Get actual camera properties
-                    width = int(camera.get(cv2.CAP_PROP_FRAME_WIDTH))
-                    height = int(camera.get(cv2.CAP_PROP_FRAME_HEIGHT))
-                    fps = int(camera.get(cv2.CAP_PROP_FPS))
-                    format_code = int(camera.get(cv2.CAP_PROP_FOURCC))
-                    format_str = "".join(
-                        [chr((format_code >> 8 * i) & 0xFF) for i in range(4)]
-                    )
+                width = int(camera.get(cv2.CAP_PROP_FRAME_WIDTH))
+                height = int(camera.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                fps = int(camera.get(cv2.CAP_PROP_FPS))
 
-                    # Check if we got valid properties
-                    if width > 0 and height > 0:
-                        self.camera = camera
-                        print(
-                            f"✓ Camera: {device} ({width}x{height} @ "
-                            f"{fps}fps, {format_str})"
-                        )
-                        return True
-                    else:
-                        camera.release()
-                        print(f"⚠️ {device} opened but invalid properties")
-                else:
-                    if camera is not None:
-                        camera.release()
-
+                if width > 0 and height > 0:
+                    self.camera = camera
+                    print(f"Camera: {device} ({width}x{height} @ {fps}fps)")
+                    return True
+                camera.release()
             except Exception as e:
-                print(f"⚠️ {device} failed: {e}")
-                continue
+                print(f"{device} failed: {e}")
 
-        print("❌ Failed to open any camera device")
-        print("\n💡 Troubleshooting:")
-        print("   1. Check which process is using the camera:")
-        print("      lsof /dev/video0")
-        print(
-            "   2. Close the application (usually Chrome, Firefox, Zoom, etc.)"
-        )
-        print("   3. Or kill the process:")
-        print("      kill -9 <PID>")
-        print("\n   Common culprits:")
-        print("   - Chrome/Chromium with an open video call")
-        print("   - Google Meet/Zoom/Teams")
-        print("   - Another camera application")
+        print("Failed to open any camera device")
         return False
 
     def initialize_virtual_camera(self) -> bool:
-        """
-        Initialize the virtual camera using pyvirtualcam.
-
-        Returns:
-            True if successful, False otherwise
-        """
-        print(f"🎥 Initializing virtual camera: {VIRTUAL_DEVICE}...")
-
+        print(f"Initializing virtual camera: {VIRTUAL_DEVICE}...")
         try:
             width = int(self.camera.get(cv2.CAP_PROP_FRAME_WIDTH))
             height = int(self.camera.get(cv2.CAP_PROP_FRAME_HEIGHT))
@@ -166,216 +91,167 @@ class LaughingManCamera:
                 fmt=pyvirtualcam.PixelFormat.BGR,
                 device=VIRTUAL_DEVICE,
             )
-
-            print(f"✓ Virtual camera initialized: {self.virtual_cam.device}")
-            print(f"  📹 Device: {VIRTUAL_DEVICE}")
-            print(f"  📐 Resolution: {width}x{height}")
-            print(f"  🎬 FPS: {TARGET_FPS}")
+            print(f"Virtual camera: {self.virtual_cam.device}")
             return True
-
         except Exception as e:
-            print(f"❌ Failed to initialize virtual camera: {e}")
-            print("\n💡 Hint: Make sure v4l2loopback is loaded:")
+            print(f"Failed to initialize virtual camera: {e}")
             print(
-                "   sudo modprobe v4l2loopback devices=1 video_nr=10 "
-                "card_label='Laughing-Man-Cam' exclusive_caps=1"
+                "Hint: sudo modprobe v4l2loopback devices=1 video_nr=10 "
+                "card_label='Big-Brother-Vision-Cam' exclusive_caps=1"
             )
             return False
 
-    def initialize_face_overlay(self) -> bool:
-        """
-        Initialize the face overlay processor.
-
-        Returns:
-            True if successful, False otherwise
-        """
-        print("🎭 Initializing face detection...")
-
+    def initialize_pipeline(self) -> bool:
+        print("Initializing face landmarker...")
         try:
-            initial_logo = (
-                LOGO_WHITE_PNG_PATH if self.use_white_logo else LOGO_PNG_PATH
-            )
-            print(f"🖼️ Using initial logo: {initial_logo.name}")
-
-            self.face_overlay = FaceOverlay(
-                logo_path=str(initial_logo),
-                min_detection_confidence=0.5,
-                enable_background=self.enable_background,
+            self.pipeline = VisionPipeline(
+                max_faces=self.max_faces,
                 detect_every_n_frames=max(1, self.detect_every),
+                hud_color=self.hud_color,
+                hud_visible=self.hud_visible,
+                assets_dir=ASSETS_DIR,
             )
-
-            bg = "Enabled" if self.enable_background else "Disabled"
-            print(f"✓ Face detection initialized (Background: {bg})")
+            print(f"Face landmarker ready (max_faces={self.max_faces})")
             return True
-
         except Exception as e:
-            print(f"❌ Failed to initialize face overlay: {e}")
+            print(f"Failed to initialize pipeline: {e}")
             return False
 
     def run(self) -> int:
-        """
-        Main application loop.
-
-        Returns:
-            Exit code (0 for success, non-zero for error)
-        """
-        # Verify logo exists
-        if not self.verify_logo():
-            return 1
-
         if not self.initialize_camera():
             return 1
 
-        # Allow camera to warm up
-        time.sleep(2.0)
+        time.sleep(1.0)
 
-        # Initialize virtual camera
         if not self.initialize_virtual_camera():
             return 1
 
-        # Initialize face overlay
-        if not self.initialize_face_overlay():
+        if not self.initialize_pipeline():
             return 1
 
         print("\n" + "=" * 60)
-        print("🎉 The Laughing Man Camera is now running!")
+        print("Big Brother Vision is running")
         print("=" * 60)
-        print(f"📹 Virtual camera is available at: {VIRTUAL_DEVICE}")
-        print("💡 In Google Meet, select 'Laughing-Man-Cam' as your camera")
-        print("⌨️  Press 't' or SPACE to toggle logo color")
-        print("⌨️  Press 'f' to show/hide overlay (no logo)")
-        print("🛑 Press 'q' or Ctrl+C to stop")
+        print(f"Virtual camera: {VIRTUAL_DEVICE}")
+        print("Select 'Big-Brother-Vision-Cam' in your video app")
+        print("Keys: h=HUD | g=green | a=amber | q=quit")
         if not self.show_preview:
-            print("💡 Preview disabled (--no-preview); shortcuts unavailable")
+            print("Preview disabled (--no-preview)")
         print("=" * 60 + "\n")
 
         if self.show_preview:
-            cv2.namedWindow("Laughing Man Control", cv2.WINDOW_NORMAL)
-            cv2.resizeWindow("Laughing Man Control", 360, 202)
+            cv2.namedWindow("Big Brother Vision", cv2.WINDOW_NORMAL)
+            cv2.resizeWindow("Big Brother Vision", 640, 360)
 
         frame_count = 0
-        preview_update_interval = (
-            3  # Update preview every N frames to reduce CPU
-        )
-        start_time = time.time()
-        fps_display_interval = 3.0  # Display FPS every 3 seconds
-        last_fps_display = start_time
+        preview_interval = 2
+        last_fps = time.time()
 
         try:
             while self.running:
-                # Capture frame
                 ret, frame = self.camera.read()
-
                 if not ret:
-                    print("⚠️ Failed to capture frame from camera")
+                    print("Failed to capture frame")
                     break
 
-                # Process frame with face overlay
-                processed_frame = self.face_overlay.process_frame(frame)
+                processed = self.pipeline.process_frame(frame)
+                self.virtual_cam.send(processed)
 
-                # Send to virtual camera
-                self.virtual_cam.send(processed_frame)
-
-                # Calculate and display FPS periodically
                 frame_count += 1
-                current_time = time.time()
-                elapsed = current_time - last_fps_display
-
-                if elapsed >= fps_display_interval:
-                    fps = frame_count / elapsed
-                    print(f"📊 FPS: {fps:.1f}")
+                now = time.time()
+                if now - last_fps >= 3.0:
+                    fps = frame_count / (now - last_fps)
+                    print(f"FPS: {fps:.1f}")
                     frame_count = 0
-                    last_fps_display = current_time
+                    last_fps = now
 
-                # Small delay to achieve target FPS
                 self.virtual_cam.sleep_until_next_frame()
 
-                # Preview and keyboard input (only when preview enabled)
                 if self.show_preview:
-                    if frame_count % preview_update_interval == 0:
-                        cv2.imshow("Laughing Man Control", processed_frame)
+                    if frame_count % preview_interval == 0:
+                        cv2.imshow("Big Brother Vision", processed)
                     key = cv2.waitKey(1) & 0xFF
                     if key == ord("q"):
                         self.running = False
-                    elif key == ord("t") or key == 32:  # 32 is space
-                        self.use_white_logo = not self.use_white_logo
-                        new_logo = (
-                            LOGO_WHITE_PNG_PATH
-                            if self.use_white_logo
-                            else LOGO_PNG_PATH
-                        )
-                        print(f"🔄 Toggling logo to: {new_logo.name}")
-                        self.face_overlay.set_logo(str(new_logo))
-                    elif key == ord("f"):
-                        self.overlay_visible = not self.overlay_visible
-                        self.face_overlay.set_overlay_visible(
-                            self.overlay_visible
-                        )
-                        on_off = "ON" if self.overlay_visible else "OFF"
-                        print(f"🔄 Overlay: {on_off}")
+                    elif key == ord("h"):
+                        self.hud_visible = not self.hud_visible
+                        self.pipeline.set_hud_visible(self.hud_visible)
+                        state = "ON" if self.hud_visible else "OFF"
+                        print(f"HUD overlay: {state}")
+                    elif key == ord("g"):
+                        self.hud_color = "green"
+                        self.pipeline.set_hud_color("green")
+                        print("HUD color: green")
+                    elif key == ord("a"):
+                        self.hud_color = "amber"
+                        self.pipeline.set_hud_color("amber")
+                        print("HUD color: amber")
 
         except Exception as e:
-            print(f"\n❌ Error during processing: {e}")
+            print(f"Error during processing: {e}")
             return 1
-
         finally:
             self.cleanup()
 
         return 0
 
-    def cleanup(self):
-        """Release resources."""
-        print("\n🧹 Cleaning up resources...")
-
+    def cleanup(self) -> None:
+        print("\nCleaning up...")
         if self.camera is not None:
             self.camera.release()
-            print("✓ Camera released")
-
         if self.virtual_cam is not None:
             self.virtual_cam.close()
-            print("✓ Virtual camera closed")
-
-        # Close any open windows
+        if self.pipeline is not None:
+            self.pipeline.close()
         cv2.destroyAllWindows()
-        print("✓ Windows closed")
-
-        print("👋 Goodbye!")
+        print("Goodbye!")
 
 
-def parse_args():
-    """Parse command line arguments."""
+def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="The Laughing Man Virtual Camera"
+        description="Big Brother Vision - Virtual Surveillance Camera"
     )
     parser.add_argument(
-        "--no-background",
+        "--max-faces",
+        type=int,
+        default=4,
+        metavar="N",
+        help="Maximum faces to track (default: 4)",
+    )
+    parser.add_argument(
+        "--hud-color",
+        choices=("green", "amber"),
+        default="green",
+        help="HUD color palette (default: green)",
+    )
+    parser.add_argument(
+        "--no-hud-overlay",
         action="store_true",
-        help="Disable virtual background and segmentation",
+        help="Disable HUD overlay (raw camera feed)",
     )
     parser.add_argument(
         "--no-preview",
         action="store_true",
-        help="No preview (lower CPU; keyboard shortcuts unavailable)",
+        help="No preview window (lower CPU)",
     )
     parser.add_argument(
         "--detect-every",
         type=int,
         default=1,
         metavar="N",
-        help="Run face detection every N frames (2=less CPU)",
+        help="Run face landmarker every N frames",
     )
     return parser.parse_args()
 
 
-def main():
-    """Entry point for the application."""
+def main() -> None:
     args = parse_args()
-
-    app = LaughingManCamera()
-    app.enable_background = not args.no_background
+    app = BigBrotherCamera()
+    app.max_faces = max(1, args.max_faces)
+    app.hud_color = args.hud_color
+    app.hud_visible = not args.no_hud_overlay
     app.show_preview = not args.no_preview
-    app.detect_every = args.detect_every
-
+    app.detect_every = max(1, args.detect_every)
     sys.exit(app.run())
 
 

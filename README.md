@@ -1,30 +1,30 @@
-# The Laughing Man Virtual Camera 🎭
+# Big Brother Vision – Virtual Surveillance Camera
 
 <div align="center">
 
-![Ghost in the Shell](https://img.shields.io/badge/Inspired_by-Ghost_in_the_Shell-blueviolet)
 ![Python 3.10+](https://shields.io/badge/Python-3.10+-blue)
 ![License: MIT](https://img.shields.io/badge/License-MIT-green)
 
-*Overlay the iconic "The Laughing Man" logo over your face in real-time for video calls* 👤➡️🎭
+*Real-time face tracking with fighter-jet HUD overlays and emotion telemetry for video calls*
 
-</div>
+## Description
 
-## 📖 Description
+Big Brother Vision turns your webcam into a **virtual surveillance feed** for Linux. It detects every visible face, assigns a subject ID (`SUBJ-001`, …), and draws a **fighter-jet style HUD** with live metrics: JOY, HAPPINESS, FEAR, FOCUS, and DROWSY.
 
-This project creates a virtual camera filter that detects your face in real-time and overlays the rotating "The Laughing Man" logo from Ghost in the Shell: Stand Alone Complex. The output is sent to a virtual camera compatible with Google Meet, Zoom, and other video conferencing applications.
+The output is exposed as a V4L2 virtual camera compatible with Google Meet, Zoom, and other apps.
 
-## ✨ Features
+> **Disclaimer:** Metrics are approximate visual indicators derived from facial blendshapes. They are for entertainment only—not psychological or medical measurements.
 
-- 🎯 **Face detection** with MediaPipe (BlazeFace, high precision and performance)
-- 🎨 **Alpha blending** for perfect transparency of the logo
-- 📹 **Virtual camera** compatible with Google Meet, Zoom and other video calling apps
-- ⚡ **Optimized** for consistent 30 FPS (detection at reduced resolution, optional `--detect-every`)
-- 🖼️ **Virtual background** (optional): selfie segmentation and replace background with images (`wall*.jpg` in `assets/`)
-- 🎭 **Toggle logo style** (white / transparent) and **show/hide overlay** at runtime via keyboard
-- 📥 **Automatic download** of MediaPipe models (face detector and selfie segmenter) on first run
+## Features
 
-## 🔧 System Requirements
+- Multi-face detection with MediaPipe Face Landmarker
+- Real-time emotion telemetry from blendshapes and eye aspect ratio (EAR)
+- Fighter-jet HUD: corner brackets, crosshair, gauge bars, subject IDs
+- Green / amber color palettes (toggle at runtime)
+- Virtual camera at 30 FPS with optional detection throttling
+- Automatic download of the Face Landmarker model on first run
+
+## System Requirements
 
 - **OS**: Linux (Ubuntu/Debian recommended)
 - **Python**: 3.10 or higher
@@ -34,134 +34,91 @@ This project creates a virtual camera filter that detects your face in real-time
 
 ```bash
 sudo apt update
-sudo apt install -y v4l2loopback-dkms v4l2loopback-utils libcairo2-dev
+sudo apt install -y v4l2loopback-dkms v4l2loopback-utils
 ```
 
-## 🚀 Installation
+## Quick Start
 
-For detailed step-by-step instructions, see [INSTALL.md](INSTALL.md).
-
-### Quick Installation
+See [INSTALL.md](INSTALL.md) for full setup.
 
 ```bash
-# 1. Clone the repository
-git clone https://github.com/your-user/the-laughing-man.git
-cd the-laughing-man
+git clone https://github.com/your-user/big-brother-vision.git
+cd big-brother-vision
 
-# 2. Load the v4l2loopback module
-sudo modprobe v4l2loopback devices=1 video_nr=10 card_label="Laughing-Man-Cam" exclusive_caps=1
+sudo modprobe v4l2loopback devices=1 video_nr=10 \
+  card_label="Big-Brother-Vision-Cam" exclusive_caps=1
 
-# 3. Install with uv (recommended)
 curl -LsSf https://astral.sh/uv/install.sh | sh
-uv venv
-source .venv/bin/activate
+uv venv && source .venv/bin/activate
 uv pip install -e .
 
-# 4. Run
-python main.py
+./start.sh
 ```
 
-## 💻 Usage
+## Usage
 
-1. **Start the virtual camera**:
-   ```bash
-   ./start.sh
-   ```
-   Or manually:
-   ```bash
-   source .venv/bin/activate
-   python main.py
-   ```
+1. Start the app: `./start.sh` or `python main.py`
+2. In Google Meet → Settings → Video → select **Big-Brother-Vision-Cam**
+3. Keyboard shortcuts (preview window focused):
+   - **`h`**: Show / hide HUD overlay
+   - **`g`**: Green HUD palette
+   - **`a`**: Amber HUD palette
+   - **`q`** or **Ctrl+C**: Quit
 
-2. **Configure in Google Meet**:
-   - Open Google Meet in your browser
-   - Go to Settings → Video
-   - Select **"Laughing-Man-Cam"** as your camera
-   - Done! The filter will be applied automatically
+### Command Line Options
 
-3. **Keyboard shortcuts** (focus on the "Laughing Man Control" window):
-   - **`t`** or **Space**: Toggle logo style (e.g. white / transparent)
-   - **`f`**: Show or hide the overlay (camera only, or camera + logo on face)
-   - **`q`** or **Ctrl+C**: Quit the application
+| Flag | Description |
+|------|-------------|
+| `--max-faces N` | Maximum faces to track (default: 4) |
+| `--hud-color green\|amber` | Initial HUD color |
+| `--no-hud-overlay` | Raw camera feed only |
+| `--no-preview` | No preview window (lower CPU) |
+| `--detect-every N` | Run landmarker every N frames |
 
-4. **Stop the application**:
-   - Press `q` in the control window, or `Ctrl+C` in the terminal
+Example for weaker hardware:
 
-## 📊 Performance
-
-The system is optimized to maintain a constant 30 FPS:
-- ✅ Face detection at reduced resolution (320px width) with MediaPipe BlazeFace
-- ✅ Optional detection every N frames (`--detect-every`) to reduce CPU load
-- ✅ Resized logo caching
-- ✅ Optimized alpha blending with NumPy
-- ✅ Segmentation at half resolution when virtual background is enabled
-
-## 🔧 Advanced Configuration
-
-### Command line options
-
-- `--no-background`: Disable virtual background and segmentation (camera only + logo overlay).
-- `--no-preview`: Do not show preview window (lower CPU; keyboard shortcuts unavailable).
-- `--detect-every N`: Run face detection every N frames (e.g. `2` for less CPU usage).
-
-### Change the virtual camera device
-
-Edit `main.py` and modify:
-```python
-VIRTUAL_DEVICE = "/dev/video10"  # Change the number if necessary
+```bash
+python main.py --detect-every 2 --max-faces 2
 ```
 
-### Adjust detection confidence
+## What the Metrics Mean
 
-In `main.py`, modify:
-```python
-self.face_overlay = FaceOverlay(
-    logo_path=str(LOGO_PNG_PATH),
-    min_detection_confidence=0.5  # Range: 0.0 - 1.0
-)
-```
+| HUD Label | Approximate signal |
+|-----------|-------------------|
+| **JOY** | Smile and cheek activation |
+| **HAPPINESS** | Overall positive expression |
+| **FEAR** | Raised inner brows, wide eyes |
+| **FOCUS** | Brow tension, neutral mouth, steady gaze |
+| **DROWSY** | Eye closure (blink + low EAR) |
 
-## 🐛 Troubleshooting
+Values are smoothed (0–100%) and meant to look convincing on stream—not to be scientifically accurate.
 
-### Error: "Failed to open camera"
-- Verify that your webcam is connected: `ls /dev/video*`
-- Try another device: `CAMERA_DEVICE = "/dev/video1"`
+## Performance
 
-### Error: "Failed to initialize virtual camera"
-- Verify that v4l2loopback is loaded: `lsmod | grep v4l2loopback`
-- Reload the module: `sudo modprobe -r v4l2loopback && sudo modprobe v4l2loopback devices=1 video_nr=10 card_label="Laughing-Man-Cam" exclusive_caps=1`
+- Face landmarker runs at reduced width (~320px)
+- Use `--detect-every 2` to halve inference cost
+- Limit faces with `--max-faces 2` on laptops
 
-### Face detection is slow
-- Reduce your webcam resolution
-- Increase `min_detection_confidence` to 0.6 or 0.7
+## Troubleshooting
 
-### Google Meet doesn't show the virtual camera
-- Verify that the device exists: `v4l2-ctl --list-devices`
-- Restart the browser after starting the script
-- Grant camera permissions to the browser
+### Camera won't open
+- Check devices: `ls /dev/video*`
+- Free the camera: `lsof /dev/video0`
 
-## 📄 License
+### Virtual camera missing
+- Load module: `lsmod | grep v4l2loopback`
+- Reload: `sudo modprobe -r v4l2loopback && sudo modprobe v4l2loopback devices=1 video_nr=10 card_label="Big-Brother-Vision-Cam" exclusive_caps=1`
 
-MIT License - See LICENSE file for more details
+### Meet doesn't list the camera
+- Restart the browser after starting the app
+- Verify: `v4l2-ctl --list-devices`
 
-## 🙏 Credits
+## License
 
-- **Logo**: Ghost in the Shell: Stand Alone Complex
-- **Face Detection**: [MediaPipe](https://mediapipe.dev/)
-- **Virtual Camera**: [pyvirtualcam](https://github.com/letmaik/pyvirtualcam)
-- **Inspiration**: The iconic "Laughing Man" scene 🎭
+MIT License — see [LICENSE](LICENSE).
 
-## 🤝 Contributions
+## Credits
 
-Contributions are welcome! Please:
-1. Fork the project
-2. Create a branch for your feature (`git checkout -b feature/AmazingFeature`)
-3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
-
----
-
-<div align="center">
-Made with ❤️ and Python 🐍
-</div>
+- [MediaPipe](https://mediapipe.dev/) — Face Landmarker & blendshapes
+- [pyvirtualcam](https://github.com/letmaik/pyvirtualcam) — Virtual camera
+- [OpenCV](https://opencv.org/) — Capture and rendering
