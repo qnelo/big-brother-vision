@@ -9,24 +9,53 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+from emotion_mapper import compute_loyalty
 from face_tracker import TrackedFace
 
 PALETTES = {
     "green": {
         "primary": (65, 255, 0),  # BGR #00FF41
+        "loyalty": (40, 195, 35),  # darker green than primary
         "dim": (40, 140, 0),
+        "loyalty_dim": (28, 115, 22),
         "rec": (0, 0, 255),
     },
     "amber": {
         "primary": (0, 176, 255),  # BGR #FFB000
+        "loyalty": (0, 145, 210),  # darker gold than primary
         "dim": (0, 100, 160),
+        "loyalty_dim": (0, 95, 140),
         "rec": (0, 0, 255),
     },
 }
 
-METRIC_ORDER = ("JOY", "HAPPINESS", "FEAR", "FOCUS", "DROWSY")
-_PANEL_WIDTH = 158
-_PANEL_HEIGHT = len(METRIC_ORDER) * 14
+METRIC_ORDER = ("JOY", "HAPPINESS", "FEAR", "FOCUS", "DROWSY", "LOYALTY")
+METRIC_LABELS: dict[str, str] = {
+    "JOY": "JOY",
+    "HAPPINESS": "HAPPINESS",
+    "FEAR": "FEAR",
+    "FOCUS": "FOCUS",
+    "DROWSY": "DROWSY",
+}
+_LOYALTY_LABEL_LINES = ("LOYALTY", "TO BIG", "BROTHER")
+_BAR_W = 150
+_BAR_H = 16
+_ROW_GAP = 22
+_LABEL_COL = 92
+_LABEL_SCALE = 0.42
+_VALUE_SCALE = 0.44
+_AGE_LINE_H = 20
+_LOYALTY_LINE_H = 14
+_LOYALTY_BLOCK_H = len(_LOYALTY_LABEL_LINES) * _LOYALTY_LINE_H
+_LOYALTY_ROW_H = max(_ROW_GAP, _LOYALTY_BLOCK_H + 4)
+_LOYALTY_TOP_GAP = 12
+_PANEL_WIDTH = _LABEL_COL + _BAR_W + 44
+_PANEL_HEIGHT = (
+    _AGE_LINE_H
+    + (len(METRIC_ORDER) - 1) * _ROW_GAP
+    + _LOYALTY_TOP_GAP
+    + _LOYALTY_ROW_H
+)
 
 
 @dataclass
@@ -66,22 +95,36 @@ class HudRenderer:
         scale: float | None = None,
         color: tuple[int, int, int] | None = None,
         thickness: int = 1,
+        bold: bool = False,
     ) -> None:
         pal = self._palette()
         c = color if color is not None else pal["primary"]
         sc = scale if scale is not None else self._font_scale
         x, y = pos
+        stroke = max(thickness, 2) if bold else thickness
         if self._freetype is not None:
+            height = int(18 * sc / 0.45)
             self._freetype.putText(
                 img,
                 text,
                 (x, y),
-                fontHeight=int(18 * sc / 0.45),
+                fontHeight=height,
                 color=c,
-                thickness=thickness,
+                thickness=stroke,
                 line_type=cv2.LINE_AA,
                 bottomLeftOrigin=False,
             )
+            if bold:
+                self._freetype.putText(
+                    img,
+                    text,
+                    (x + 1, y),
+                    fontHeight=height,
+                    color=c,
+                    thickness=stroke,
+                    line_type=cv2.LINE_AA,
+                    bottomLeftOrigin=False,
+                )
         else:
             cv2.putText(
                 img,
@@ -90,7 +133,7 @@ class HudRenderer:
                 cv2.FONT_HERSHEY_SIMPLEX,
                 sc,
                 c,
-                thickness,
+                stroke,
                 cv2.LINE_AA,
             )
 
@@ -128,40 +171,130 @@ class HudRenderer:
         cv2.line(img, (cx, cy - size), (cx, cy + size), c, 1)
         cv2.circle(img, (cx, cy), 3, c, 1)
 
+    def _draw_gauge_bar(
+        self,
+        img: np.ndarray,
+        bx: int,
+        by: int,
+        val: float,
+        bar_w: int,
+        bar_h: int,
+        bar_color: tuple[int, int, int] | None = None,
+        frame_color: tuple[int, int, int] | None = None,
+        text_color: tuple[int, int, int] | None = None,
+        value_bold: bool = False,
+    ) -> None:
+        pal = self._palette()
+        primary = bar_color if bar_color is not None else pal["primary"]
+        dim = frame_color if frame_color is not None else pal["dim"]
+        cv2.rectangle(img, (bx, by), (bx + bar_w, by + bar_h), dim, 1)
+        fill = int(bar_w * val / 100.0)
+        if fill > 0:
+            cv2.rectangle(
+                img,
+                (bx + 1, by + 1),
+                (bx + fill, by + bar_h - 1),
+                primary,
+                -1,
+            )
+        self._text(
+            img,
+            f"{int(val):03d}",
+            (bx + bar_w + 6, by + bar_h - 1),
+            scale=_VALUE_SCALE,
+            color=text_color,
+            bold=value_bold,
+        )
+
+    def _draw_label_lines(
+        self,
+        img: np.ndarray,
+        x: int,
+        y: int,
+        lines: tuple[str, ...],
+        line_h: int,
+        color: tuple[int, int, int] | None = None,
+        bold: bool = False,
+    ) -> int:
+        """Draw stacked label lines; return total block height."""
+        for i, line in enumerate(lines):
+            self._text(
+                img,
+                line,
+                (x, y + (i + 1) * line_h - 3),
+                scale=_LABEL_SCALE,
+                color=color,
+                bold=bold,
+            )
+        return len(lines) * line_h
+
     def draw_gauge_bars(
         self,
         img: np.ndarray,
         x: int,
         y: int,
         metrics: dict[str, float],
-        bar_w: int = 90,
-        bar_h: int = 8,
-        gap: int = 14,
+        bar_w: int = _BAR_W,
+        bar_h: int = _BAR_H,
+        gap: int = _ROW_GAP,
     ) -> None:
-        pal = self._palette()
-        primary = pal["primary"]
-        dim = pal["dim"]
-        for i, key in enumerate(METRIC_ORDER):
+        cursor_y = y
+        for key in METRIC_ORDER:
             val = metrics.get(key, 0.0)
-            by = y + i * gap
-            self._text(img, key[:4], (x, by + bar_h - 1), scale=0.35)
-            bx = x + 42
-            cv2.rectangle(img, (bx, by), (bx + bar_w, by + bar_h), dim, 1)
-            fill = int(bar_w * val / 100.0)
-            if fill > 0:
-                cv2.rectangle(
+            bx = x + _LABEL_COL
+
+            if key == "LOYALTY":
+                pal = self._palette()
+                loyalty_c = pal["loyalty"]
+                loyalty_dim = pal["loyalty_dim"]
+                cursor_y += _LOYALTY_TOP_GAP
+                self._draw_label_lines(
                     img,
-                    (bx + 1, by + 1),
-                    (bx + fill, by + bar_h - 1),
-                    primary,
-                    -1,
+                    x,
+                    cursor_y,
+                    _LOYALTY_LABEL_LINES,
+                    _LOYALTY_LINE_H,
+                    color=loyalty_c,
                 )
+                bar_y = cursor_y + (_LOYALTY_BLOCK_H - bar_h) // 2
+                self._draw_gauge_bar(
+                    img,
+                    bx,
+                    bar_y,
+                    val,
+                    bar_w,
+                    bar_h,
+                    bar_color=loyalty_c,
+                    frame_color=loyalty_dim,
+                    text_color=loyalty_c,
+                )
+                cursor_y += _LOYALTY_ROW_H
+                continue
+
+            label = METRIC_LABELS.get(key, key)
             self._text(
                 img,
-                f"{int(val):03d}",
-                (bx + bar_w + 6, by + bar_h - 1),
-                scale=0.35,
+                label,
+                (x, cursor_y + bar_h - 1),
+                scale=_LABEL_SCALE,
             )
+            self._draw_gauge_bar(img, bx, cursor_y, val, bar_w, bar_h)
+            cursor_y += gap
+
+    def draw_age_line(
+        self,
+        img: np.ndarray,
+        x: int,
+        y: int,
+        track: TrackedFace,
+    ) -> int:
+        """Draw AGE header; return y offset for gauge bars below."""
+        if track.species == "cat":
+            age_text = "AGE: --"
+        else:
+            age_text = f"AGE: {int(track.age):03d}"
+        self._text(img, age_text, (x, y + _AGE_LINE_H - 4), scale=0.42)
+        return y + _AGE_LINE_H
 
     def _panel_position(
         self,
@@ -227,7 +360,12 @@ class HudRenderer:
             track_index,
             prefer_left=track.species == "cat",
         )
-        self.draw_gauge_bars(img, panel_x, panel_y, track.metrics.as_dict())
+        metrics = track.metrics.as_dict()
+        metrics["LOYALTY"] = compute_loyalty(
+            track.metrics, species=track.species
+        )
+        bars_y = self.draw_age_line(img, panel_x, panel_y, track)
+        self.draw_gauge_bars(img, panel_x, bars_y, metrics)
 
     def draw_global_hud(self, img: np.ndarray, target_count: int) -> None:
         pal = self._palette()

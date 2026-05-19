@@ -11,7 +11,12 @@ import numpy as np
 
 from cat_detector import CatDetector
 from cat_emotion_mapper import CatEmotionMapper
-from emotion_mapper import EmotionMapper, EmotionMetrics, FaceDetection
+from emotion_mapper import (
+    EmotionMapper,
+    EmotionMetrics,
+    FaceDetection,
+    estimate_age_heuristic,
+)
 from face_tracker import FaceTracker, TrackedFace, _iou
 from hud_renderer import HudRenderer
 
@@ -204,6 +209,9 @@ class VisionPipeline:
             )
             metrics = EmotionMetrics()
             metrics.update_ema(raw, alpha=1.0)
+            age = estimate_age_heuristic(
+                face_lms, bs_dict, full_w, full_h
+            )
 
             detections.append(
                 FaceDetection(
@@ -213,6 +221,7 @@ class VisionPipeline:
                     landmarks=face_lms,
                     blendshapes=bs_dict,
                     metrics=metrics,
+                    age=age,
                 )
             )
 

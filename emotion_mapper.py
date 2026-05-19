@@ -14,6 +14,12 @@ _RIGHT_EYE = (362, 385, 387, 263, 373, 380)
 
 METRIC_KEYS = ("JOY", "HAPPINESS", "FEAR", "FOCUS", "DROWSY")
 
+# MediaPipe 478-landmark face mesh (forehead, chin, cheeks)
+_FOREHEAD = 10
+_CHIN = 152
+_LEFT_CHEEK = 234
+_RIGHT_CHEEK = 454
+
 
 @dataclass
 class EmotionMetrics:
@@ -150,6 +156,68 @@ def _clamp100(v: float) -> float:
     return max(0.0, min(100.0, v))
 
 
+def _clamp_age(v: float) -> float:
+    return max(16.0, min(85.0, v))
+
+
+_CAT_LOYALTY_BONUS = 28.0
+_CAT_LOYALTY_FLOOR = 72.0
+
+
+def compute_loyalty(
+    metrics: EmotionMetrics,
+    species: Species = "human",
+) -> float:
+    """Leader adherence score from positive affect and low fear."""
+    base = _clamp100(
+        metrics.joy * 0.25
+        + metrics.happiness * 0.30
+        + metrics.focus * 0.25
+        + (100.0 - metrics.fear) * 0.20
+    )
+    if species == "cat":
+        return _clamp100(max(base + _CAT_LOYALTY_BONUS, _CAT_LOYALTY_FLOOR))
+    return base
+
+
+def estimate_age_heuristic(
+    landmarks,
+    blendshapes: dict[str, float],
+    frame_w: int,
+    frame_h: int,
+) -> float:
+    """Approximate age from face proportions and expression cues."""
+    if landmarks is None or len(landmarks) <= _RIGHT_CHEEK:
+        return 30.0
+
+    def pt(idx: int) -> tuple[float, float]:
+        lm = landmarks[idx]
+        return (lm.x * frame_w, lm.y * frame_h)
+
+    forehead = pt(_FOREHEAD)
+    chin = pt(_CHIN)
+    left_cheek = pt(_LEFT_CHEEK)
+    right_cheek = pt(_RIGHT_CHEEK)
+
+    face_h = math.dist(forehead, chin)
+    face_w = math.dist(left_cheek, right_cheek)
+    if face_w < 1e-6:
+        return 30.0
+
+    ratio = face_h / face_w
+    base = 22.0 + (ratio - 1.15) * 55.0
+
+    def bs(name: str) -> float:
+        return blendshapes.get(name, 0.0)
+
+    brow_down = (bs("browDownLeft") + bs("browDownRight")) / 2.0
+    mouth_frown = (bs("mouthFrownLeft") + bs("mouthFrownRight")) / 2.0
+    cheek = (bs("cheekSquintLeft") + bs("cheekSquintRight")) / 2.0
+    expr_adj = brow_down * 12.0 + mouth_frown * 8.0 - cheek * 6.0
+
+    return _clamp_age(base + expr_adj)
+
+
 @dataclass
 class FaceDetection:
     """Single face detection output for one frame."""
@@ -160,3 +228,4 @@ class FaceDetection:
     landmarks: list | None = None
     blendshapes: dict[str, float] = field(default_factory=dict)
     metrics: EmotionMetrics = field(default_factory=EmotionMetrics)
+    age: float | None = None

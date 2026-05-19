@@ -30,6 +30,7 @@ class TrackedFace:
     center: tuple[int, int]
     metrics: EmotionMetrics
     species: Species = "human"
+    age: float = 0.0
     frames_lost: int = 0
     locked: bool = True
 
@@ -47,6 +48,18 @@ class FaceTracker:
     _next_human_id: int = 1
     _next_cat_id: int = 1
     _tracks: list[TrackedFace] = field(default_factory=list)
+    _age_alpha: float = 0.15
+
+    @staticmethod
+    def _ema_age(prev: float, new: float, alpha: float) -> float:
+        return prev * (1.0 - alpha) + new * alpha
+
+    def _update_track_age(
+        self, track: TrackedFace, det: FaceDetection
+    ) -> None:
+        if det.species != "human" or det.age is None:
+            return
+        track.age = self._ema_age(track.age, det.age, self._age_alpha)
 
     def update(self, detections: list[FaceDetection]) -> list[TrackedFace]:
         """Match detections to tracks; return active tracked faces."""
@@ -73,6 +86,7 @@ class FaceTracker:
             track.bbox = det.bbox
             track.center = det.center
             track.metrics.update_ema(det.metrics.as_dict(), alpha=0.22)
+            self._update_track_age(track, det)
             track.frames_lost = 0
             track.locked = True
 
@@ -92,6 +106,10 @@ class FaceTracker:
                 self._next_human_id += 1
             metrics = EmotionMetrics()
             metrics.update_ema(det.metrics.as_dict(), alpha=1.0)
+            if det.species == "human" and det.age is not None:
+                initial_age = det.age
+            else:
+                initial_age = 0.0
             self._tracks.append(
                 TrackedFace(
                     subject_id=sid,
@@ -99,6 +117,7 @@ class FaceTracker:
                     center=det.center,
                     metrics=metrics,
                     species=det.species,
+                    age=initial_age,
                     frames_lost=0,
                     locked=True,
                 )
