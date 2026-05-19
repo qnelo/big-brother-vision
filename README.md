@@ -1,7 +1,5 @@
 # Big Brother Vision – Virtual Surveillance Camera
 
-<div align="center">
-
 ![Python 3.10+](https://shields.io/badge/Python-3.10+-blue)
 ![License: MIT](https://img.shields.io/badge/License-MIT-green)
 
