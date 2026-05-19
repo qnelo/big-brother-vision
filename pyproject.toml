@@ -34,6 +34,8 @@ only-include = [
     "emotion_mapper.py",
     "face_tracker.py",
     "hud_renderer.py",
+    "cat_detector.py",
+    "cat_emotion_mapper.py",
 ]
 
 [tool.ruff]

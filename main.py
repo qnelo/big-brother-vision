@@ -34,6 +34,8 @@ class BigBrotherCamera:
         self.show_preview = True
         self.detect_every = 1
         self.max_faces = 4
+        self.max_cats = 2
+        self.detect_cats = True
         self.hud_color = "green"
         self.hud_visible = True
 
@@ -106,12 +108,21 @@ class BigBrotherCamera:
         try:
             self.pipeline = VisionPipeline(
                 max_faces=self.max_faces,
+                max_cats=self.max_cats,
+                detect_cats=self.detect_cats,
                 detect_every_n_frames=max(1, self.detect_every),
                 hud_color=self.hud_color,
                 hud_visible=self.hud_visible,
                 assets_dir=ASSETS_DIR,
             )
-            print(f"Face landmarker ready (max_faces={self.max_faces})")
+            cat_info = (
+                f", max_cats={self.max_cats}"
+                if self.detect_cats
+                else ", cats=disabled"
+            )
+            print(
+                f"Face landmarker ready (max_faces={self.max_faces}{cat_info})"
+            )
             return True
         except Exception as e:
             print(f"Failed to initialize pipeline: {e}")
@@ -219,6 +230,18 @@ def parse_args() -> argparse.Namespace:
         help="Maximum faces to track (default: 4)",
     )
     parser.add_argument(
+        "--max-cats",
+        type=int,
+        default=2,
+        metavar="N",
+        help="Maximum cat faces to track (default: 2)",
+    )
+    parser.add_argument(
+        "--no-cats",
+        action="store_true",
+        help="Disable cat face detection",
+    )
+    parser.add_argument(
         "--hud-color",
         choices=("green", "amber"),
         default="green",
@@ -248,6 +271,8 @@ def main() -> None:
     args = parse_args()
     app = BigBrotherCamera()
     app.max_faces = max(1, args.max_faces)
+    app.max_cats = max(0, args.max_cats)
+    app.detect_cats = not args.no_cats
     app.hud_color = args.hud_color
     app.hud_visible = not args.no_hud_overlay
     app.show_preview = not args.no_preview

@@ -9,8 +9,10 @@ import cv2
 import mediapipe as mp
 import numpy as np
 
+from cat_detector import CatDetector
+from cat_emotion_mapper import CatEmotionMapper
 from emotion_mapper import EmotionMapper, EmotionMetrics, FaceDetection
-from face_tracker import FaceTracker, TrackedFace
+from face_tracker import FaceTracker, TrackedFace, _iou
 from hud_renderer import HudRenderer
 
 MODEL_URL = (
@@ -27,12 +29,16 @@ class VisionPipeline:
     def __init__(
         self,
         max_faces: int = 4,
+        max_cats: int = 2,
+        detect_cats: bool = True,
         detect_every_n_frames: int = 1,
         hud_color: str = "green",
         hud_visible: bool = True,
         assets_dir: Path | None = None,
     ):
         self.max_faces = max_faces
+        self.max_cats = max_cats
+        self.detect_cats = detect_cats
         self._detect_every_n = max(1, detect_every_n_frames)
         self.hud_visible = hud_visible
         self._process_frame_count = 0
@@ -46,11 +52,16 @@ class VisionPipeline:
         )
 
         self.emotion_mapper = EmotionMapper()
+        self.cat_emotion_mapper = CatEmotionMapper()
         self.face_tracker = FaceTracker()
         self.hud_renderer = HudRenderer(
             color_mode=hud_color,
             font_path=self.font_path,
         )
+
+        self._cat_detector: CatDetector | None = None
+        if detect_cats:
+            self._cat_detector = CatDetector()
 
         model_path = self._ensure_model()
         base_options = mp.tasks.BaseOptions(model_asset_path=str(model_path))
@@ -106,7 +117,34 @@ class VisionPipeline:
         y2 = int(min(frame_h, max_y + pad_y))
         return x, y, x2 - x, y2 - y
 
-    def _detect_faces(self, frame: np.ndarray) -> list[FaceDetection]:
+    def _history_key_for_cat(self, det: FaceDetection) -> str:
+        best_key = f"new-{det.center[0]}-{det.center[1]}"
+        best_iou = 0.0
+        for track in self._last_tracks:
+            if track.species != "cat":
+                continue
+            iou = _iou(track.bbox, det.bbox)
+            if iou >= 0.25 and iou > best_iou:
+                best_iou = iou
+                best_key = track.subject_id
+        return best_key
+
+    def _apply_cat_metrics(
+        self, frame: np.ndarray, detections: list[FaceDetection]
+    ) -> None:
+        for det in detections:
+            if det.species != "cat":
+                continue
+            history_key = self._history_key_for_cat(det)
+            history = self.cat_emotion_mapper.get_history(history_key)
+            raw = self.cat_emotion_mapper.raw_metrics(
+                frame, det.bbox, det.center, history
+            )
+            metrics = EmotionMetrics()
+            metrics.update_ema(raw, alpha=1.0)
+            det.metrics = metrics
+
+    def _detect_humans(self, frame: np.ndarray) -> list[FaceDetection]:
         full_h, full_w = frame.shape[:2]
         detect_w = self._detect_width
         detect_h = max(1, int(full_h * detect_w / full_w))
@@ -171,11 +209,41 @@ class VisionPipeline:
                 FaceDetection(
                     bbox=bbox,
                     center=(cx, cy),
+                    species="human",
                     landmarks=face_lms,
                     blendshapes=bs_dict,
                     metrics=metrics,
                 )
             )
+
+        return detections
+
+    def _filter_cats_overlapping_humans(
+        self,
+        humans: list[FaceDetection],
+        cats: list[FaceDetection],
+        iou_threshold: float = 0.35,
+    ) -> list[FaceDetection]:
+        """Drop cat detections that overlap a human face (Haar false positives)."""
+        kept: list[FaceDetection] = []
+        for cat in cats:
+            overlaps_human = any(
+                _iou(cat.bbox, human.bbox) >= iou_threshold for human in humans
+            )
+            if not overlaps_human:
+                kept.append(cat)
+        return kept
+
+    def _detect_subjects(self, frame: np.ndarray) -> list[FaceDetection]:
+        detections = self._detect_humans(frame)
+
+        if self.detect_cats and self._cat_detector is not None:
+            cat_detections = self._cat_detector.detect(frame, self.max_cats)
+            cat_detections = self._filter_cats_overlapping_humans(
+                detections, cat_detections
+            )
+            self._apply_cat_metrics(frame, cat_detections)
+            detections.extend(cat_detections)
 
         return detections
 
@@ -188,10 +256,15 @@ class VisionPipeline:
         )
 
         if run_detect:
-            self._last_detections = self._detect_faces(frame)
+            self._last_detections = self._detect_subjects(frame)
 
         tracks = self.face_tracker.update(self._last_detections)
         self._last_tracks = tracks
+
+        active_cat_keys = {
+            t.subject_id for t in tracks if t.species == "cat"
+        }
+        self.cat_emotion_mapper.prune_stale(active_cat_keys)
 
         if not self.hud_visible:
             return frame

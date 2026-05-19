@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from emotion_mapper import EmotionMetrics, FaceDetection
+from emotion_mapper import EmotionMetrics, FaceDetection, Species
 
 
 def _iou(a: tuple[int, int, int, int], b: tuple[int, int, int, int]) -> float:
@@ -29,6 +29,7 @@ class TrackedFace:
     bbox: tuple[int, int, int, int]
     center: tuple[int, int]
     metrics: EmotionMetrics
+    species: Species = "human"
     frames_lost: int = 0
     locked: bool = True
 
@@ -39,11 +40,12 @@ class TrackedFace:
 
 @dataclass
 class FaceTracker:
-    """Assign and maintain SUBJ-NNN IDs across frames."""
+    """Assign and maintain SUBJ-NNN / CAT-NNN IDs across frames."""
 
     max_lost_frames: int = 15
     iou_threshold: float = 0.25
-    _next_id: int = 1
+    _next_human_id: int = 1
+    _next_cat_id: int = 1
     _tracks: list[TrackedFace] = field(default_factory=list)
 
     def update(self, detections: list[FaceDetection]) -> list[TrackedFace]:
@@ -51,10 +53,11 @@ class FaceTracker:
         matched_det: set[int] = set()
         matched_track: set[int] = set()
 
-        # Greedy IoU matching
         pairs: list[tuple[float, int, int]] = []
         for ti, track in enumerate(self._tracks):
             for di, det in enumerate(detections):
+                if track.species != det.species:
+                    continue
                 iou = _iou(track.bbox, det.bbox)
                 if iou >= self.iou_threshold:
                     pairs.append((iou, ti, di))
@@ -73,18 +76,20 @@ class FaceTracker:
             track.frames_lost = 0
             track.locked = True
 
-        # Unmatched tracks age out
         for ti, track in enumerate(self._tracks):
             if ti not in matched_track:
                 track.frames_lost += 1
                 track.locked = track.frames_lost < 3
 
-        # New tracks for unmatched detections
         for di, det in enumerate(detections):
             if di in matched_det:
                 continue
-            sid = f"SUBJ-{self._next_id:03d}"
-            self._next_id += 1
+            if det.species == "cat":
+                sid = f"CAT-{self._next_cat_id:03d}"
+                self._next_cat_id += 1
+            else:
+                sid = f"SUBJ-{self._next_human_id:03d}"
+                self._next_human_id += 1
             metrics = EmotionMetrics()
             metrics.update_ema(det.metrics.as_dict(), alpha=1.0)
             self._tracks.append(
@@ -93,6 +98,7 @@ class FaceTracker:
                     bbox=det.bbox,
                     center=det.center,
                     metrics=metrics,
+                    species=det.species,
                     frames_lost=0,
                     locked=True,
                 )

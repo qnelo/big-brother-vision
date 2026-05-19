@@ -25,6 +25,8 @@ PALETTES = {
 }
 
 METRIC_ORDER = ("JOY", "HAPPINESS", "FEAR", "FOCUS", "DROWSY")
+_PANEL_WIDTH = 158
+_PANEL_HEIGHT = len(METRIC_ORDER) * 14
 
 
 @dataclass
@@ -161,7 +163,42 @@ class HudRenderer:
                 scale=0.35,
             )
 
-    def draw_face_hud(self, img: np.ndarray, track: TrackedFace) -> None:
+    def _panel_position(
+        self,
+        img: np.ndarray,
+        bx: int,
+        by: int,
+        bw: int,
+        bh: int,
+        track_index: int,
+        prefer_left: bool = False,
+    ) -> tuple[int, int]:
+        """Place gauge panel beside the subject bbox, not at a fixed screen column."""
+        gh, gw = img.shape[:2]
+        margin = 10
+        right_x = bx + bw + margin
+        left_x = bx - _PANEL_WIDTH - margin
+
+        if prefer_left and left_x >= 0:
+            panel_x = left_x
+        elif right_x + _PANEL_WIDTH <= gw:
+            panel_x = right_x
+        elif left_x >= 0:
+            panel_x = left_x
+        else:
+            panel_x = max(0, min(right_x, gw - _PANEL_WIDTH))
+
+        panel_y = by + track_index * 12
+        max_y = gh - _PANEL_HEIGHT - margin
+        panel_y = max(margin, min(panel_y, max_y))
+        return panel_x, panel_y
+
+    def draw_face_hud(
+        self,
+        img: np.ndarray,
+        track: TrackedFace,
+        track_index: int = 0,
+    ) -> None:
         x, y, w, h = track.bbox
         cx, cy = track.center
         pad = 12
@@ -181,10 +218,15 @@ class HudRenderer:
         # Subject label above box
         self._text(img, track.label(), (bx, max(18, by - 8)), scale=0.42)
 
-        # Gauge panel to the right of face
-        gh, gw = img.shape[:2]
-        panel_x = min(bx + bw + 10, gw - 160)
-        panel_y = max(10, by)
+        panel_x, panel_y = self._panel_position(
+            img,
+            bx,
+            by,
+            bw,
+            bh,
+            track_index,
+            prefer_left=track.species == "cat",
+        )
         self.draw_gauge_bars(img, panel_x, panel_y, track.metrics.as_dict())
 
     def draw_global_hud(self, img: np.ndarray, target_count: int) -> None:
@@ -219,7 +261,7 @@ class HudRenderer:
     ) -> np.ndarray:
         """Draw full HUD on a copy of the frame."""
         out = frame.copy()
-        for track in tracks:
-            self.draw_face_hud(out, track)
+        for index, track in enumerate(tracks):
+            self.draw_face_hud(out, track, track_index=index)
         self.draw_global_hud(out, len(tracks))
         return out

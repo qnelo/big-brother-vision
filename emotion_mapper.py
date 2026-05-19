@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
+from typing import Literal
+
+Species = Literal["human", "cat"]
 
 # MediaPipe Face Mesh eye indices (478-landmark model, stable subset)
 _LEFT_EYE = (33, 160, 158, 133, 153, 144)
@@ -153,6 +156,7 @@ class FaceDetection:
 
     bbox: tuple[int, int, int, int]  # x, y, w, h full-res
     center: tuple[int, int]
+    species: Species = "human"
     landmarks: list | None = None
     blendshapes: dict[str, float] = field(default_factory=dict)
     metrics: EmotionMetrics = field(default_factory=EmotionMetrics)
