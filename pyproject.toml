@@ -1,7 +1,7 @@
 [project]
 name = "big-brother-vision"
 version = "0.2.0"
-description = "Virtual surveillance camera with fighter-jet HUD and real-time emotion metrics"
+description = "Virtual surveillance camera with big brother HUD and real-time emotion metrics"
 authors = [
     {name = "qnelo"}
 ]

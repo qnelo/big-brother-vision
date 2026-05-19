@@ -1,4 +1,4 @@
-"""Fighter-jet style HUD overlay renderer."""
+"""Big Brother HUD overlay renderer."""
 
 from __future__ import annotations
 

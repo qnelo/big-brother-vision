@@ -2,7 +2,7 @@
 """
 Big Brother Vision - Virtual Surveillance Camera
 
-Real-time multi-face tracking with fighter-jet HUD overlays for Linux
+Real-time multi-face tracking with big brother HUD overlays for Linux
 virtual camera (v4l2loopback + pyvirtualcam).
 """
 
@@ -33,7 +33,7 @@ class BigBrotherCamera:
         self.running = True
         self.show_preview = True
         self.detect_every = 1
-        self.max_faces = 4
+        self.max_faces = 2
         self.max_cats = 2
         self.detect_cats = True
         self.hud_color = "green"
