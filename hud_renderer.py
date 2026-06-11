@@ -41,12 +41,15 @@ METRIC_LABELS: dict[str, str] = {
 _LOYALTY_LABEL_LINES = ("LOYALTY", "TO BIG", "BROTHER")
 # Global scale factor for the per-subject metrics panel ("hub").
 _HUD_SCALE = 1.6
-_BAR_W = int(150 * _HUD_SCALE)
-_BAR_H = int(16 * _HUD_SCALE)
+# Percentage bars are one third smaller than the base panel scale.
+_BAR_SCALE = 2 / 3
+_BAR_W_SCALE = 0.5  # half width on the horizontal axis
+_BAR_W = int(150 * _HUD_SCALE * _BAR_SCALE * _BAR_W_SCALE)
+_BAR_H = int(16 * _HUD_SCALE * _BAR_SCALE)
 _ROW_GAP = int(22 * _HUD_SCALE)
 _LABEL_COL = int(92 * _HUD_SCALE)
 _LABEL_SCALE = 0.42 * _HUD_SCALE
-_VALUE_SCALE = 0.44 * _HUD_SCALE
+_VALUE_SCALE = 0.44 * _HUD_SCALE * _BAR_SCALE
 _AGE_LINE_H = int(20 * _HUD_SCALE)
 _LOYALTY_LINE_H = int(14 * _HUD_SCALE)
 _LOYALTY_BLOCK_H = len(_LOYALTY_LABEL_LINES) * _LOYALTY_LINE_H
@@ -119,6 +122,17 @@ class HudRenderer:
                 line_type=cv2.LINE_AA,
                 bottomLeftOrigin=False,
             )
+            if bold:
+                self._freetype.putText(
+                    img,
+                    text,
+                    (x + 1, y),
+                    fontHeight=height,
+                    color=c,
+                    thickness=stroke,
+                    line_type=cv2.LINE_AA,
+                    bottomLeftOrigin=False,
+                )
         else:
             cv2.putText(
                 img,
@@ -393,6 +407,7 @@ class HudRenderer:
             f"REC  {now}",
             (int(32 * s), int(28 * s)),
             scale=0.5 * s,
+            bold=True,
         )
 
         self._text(
@@ -400,6 +415,7 @@ class HudRenderer:
             "SYS:BIG_BROTHER_VISION",
             (int(12 * s), h - int(36 * s)),
             scale=0.42 * s,
+            bold=True,
         )
         targets_text = f"TARGETS: {target_count}"
         self._text(
@@ -407,6 +423,7 @@ class HudRenderer:
             targets_text,
             (w - int(160 * s), int(28 * s)),
             scale=0.45 * s,
+            bold=True,
         )
 
         # Corner frame accents

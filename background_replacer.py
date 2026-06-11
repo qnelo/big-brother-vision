@@ -27,6 +27,23 @@ _WALL_PATTERN = re.compile(r"wall(\d+)\.jpg$", re.IGNORECASE)
 # Width used to run segmentation; the mask is upscaled back to the frame size.
 _SEG_WIDTH = 256
 
+# --- Edge refinement -------------------------------------------------------
+# Shrink the foreground mask by ~1px at segmentation scale (~5px at 720p)
+# so the real background no longer halos around the subject.
+_ERODE_KERNEL = np.ones((3, 3), dtype=np.uint8)
+# Confidence values are remapped from [LO, HI] to [0, 1], producing a much
+# steeper alpha ramp (narrower blend band) at the silhouette.
+_EDGE_LO = 0.35
+_EDGE_HI = 0.80
+# Fast guided filter parameters (He & Sun 2015). Coefficients are solved
+# at _GUIDE_WIDTH and applied at _GF_APPLY_WIDTH, snapping the upscaled
+# mask to the luminance edges of the subject's silhouette.
+_GUIDE_WIDTH = 320
+_GF_APPLY_WIDTH = 640
+_GF_RADIUS = 4
+# Guide is kept in [0, 255]; eps scales with intensity squared.
+_GF_EPS = 5e-4 * 255.0 * 255.0
+
 
 class BackgroundReplacer:
     """Segment the foreground person and composite a wall background."""
@@ -65,6 +82,7 @@ class BackgroundReplacer:
         self._mask_full: np.ndarray | None = None
         self._inv_mask_full: np.ndarray | None = None
         self._composite: np.ndarray | None = None
+        self._gray_full: np.ndarray | None = None
 
         # 0 means disabled (no background replacement).
         self.active_number = 0
@@ -195,7 +213,65 @@ class BackgroundReplacer:
         self._mask_full = np.ones((full_h, full_w), dtype=np.float32)
         self._inv_mask_full = np.zeros((full_h, full_w), dtype=np.float32)
         self._composite = np.empty((full_h, full_w, 3), dtype=np.uint8)
+        self._gray_full = np.empty((full_h, full_w), dtype=np.uint8)
         return True
+
+    def _guided_upsample(
+        self, frame: np.ndarray, mask_small: np.ndarray
+    ) -> None:
+        """Edge-aware upscale of the small mask into ``self._mask_full``.
+
+        Fast guided filter: linear coefficients are solved at
+        _GUIDE_WIDTH with box filters, applied against the luminance
+        guide at _GF_APPLY_WIDTH (snapping the alpha edge to real image
+        edges), then bilinearly upscaled to full resolution.
+        """
+        full_h, full_w = frame.shape[:2]
+        gw = _GUIDE_WIDTH
+        gh = max(1, int(full_h * gw / full_w))
+        aw = min(_GF_APPLY_WIDTH, full_w)
+        ah = max(1, int(full_h * aw / full_w))
+        ksize = (2 * _GF_RADIUS + 1, 2 * _GF_RADIUS + 1)
+
+        cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY, dst=self._gray_full)
+        guide_apply = cv2.resize(
+            self._gray_full, (aw, ah), interpolation=cv2.INTER_LINEAR
+        ).astype(np.float32)
+        guide = cv2.resize(
+            guide_apply, (gw, gh), interpolation=cv2.INTER_LINEAR
+        )
+        src = cv2.resize(
+            mask_small, (gw, gh), interpolation=cv2.INTER_LINEAR
+        )
+
+        mean_i = cv2.boxFilter(guide, -1, ksize)
+        mean_p = cv2.boxFilter(src, -1, ksize)
+        corr_ip = cv2.boxFilter(guide * src, -1, ksize)
+        corr_ii = cv2.boxFilter(guide * guide, -1, ksize)
+        var_i = corr_ii - mean_i * mean_i
+        cov_ip = corr_ip - mean_i * mean_p
+        a = cov_ip / (var_i + _GF_EPS)
+        b = mean_p - a * mean_i
+        mean_a = cv2.boxFilter(a, -1, ksize)
+        mean_b = cv2.boxFilter(b, -1, ksize)
+
+        # q = a * I + b at apply resolution, then upscale to full.
+        a_apply = cv2.resize(
+            mean_a, (aw, ah), interpolation=cv2.INTER_LINEAR
+        )
+        b_apply = cv2.resize(
+            mean_b, (aw, ah), interpolation=cv2.INTER_LINEAR
+        )
+        q = a_apply
+        np.multiply(q, guide_apply, out=q)
+        np.add(q, b_apply, out=q)
+        np.clip(q, 0.0, 1.0, out=q)
+        cv2.resize(
+            q,
+            (full_w, full_h),
+            dst=self._mask_full,
+            interpolation=cv2.INTER_LINEAR,
+        )
 
     def _update_mask(self, frame: np.ndarray) -> None:
         """Run segmentation and refresh the full-resolution alpha masks."""
@@ -236,16 +312,20 @@ class BackgroundReplacer:
         if mask.ndim == 3:
             mask = mask[:, :, 0]
 
-        # Feather the small mask before upscaling (much cheaper than
-        # blurring at full resolution; bilinear upscale smooths further).
+        # Denoise the raw confidence mask at small resolution.
         cv2.GaussianBlur(mask, (0, 0), sigmaX=1.0, dst=self._mask_small)
-        np.clip(self._mask_small, 0.0, 1.0, out=self._mask_small)
-        cv2.resize(
+        # Pull the silhouette slightly inward to remove the background halo.
+        cv2.erode(self._mask_small, _ERODE_KERNEL, dst=self._mask_small)
+        # Steepen the alpha ramp: [LO, HI] -> [0, 1].
+        np.subtract(self._mask_small, _EDGE_LO, out=self._mask_small)
+        np.multiply(
             self._mask_small,
-            (full_w, full_h),
-            dst=self._mask_full,
-            interpolation=cv2.INTER_LINEAR,
+            1.0 / (_EDGE_HI - _EDGE_LO),
+            out=self._mask_small,
         )
+        np.clip(self._mask_small, 0.0, 1.0, out=self._mask_small)
+        # Edge-aware upscale snaps the mask to the subject's real contour.
+        self._guided_upsample(frame, self._mask_small)
         np.subtract(1.0, self._mask_full, out=self._inv_mask_full)
 
     def apply(self, frame: np.ndarray) -> np.ndarray:
