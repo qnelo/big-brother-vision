@@ -38,6 +38,7 @@ class BigBrotherCamera:
         self.detect_cats = True
         self.hud_color = "green"
         self.hud_visible = True
+        self.background: int | None = None
 
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
@@ -114,6 +115,7 @@ class BigBrotherCamera:
                 hud_color=self.hud_color,
                 hud_visible=self.hud_visible,
                 assets_dir=ASSETS_DIR,
+                background=self.background,
             )
             cat_info = (
                 f", max_cats={self.max_cats}"
@@ -145,7 +147,7 @@ class BigBrotherCamera:
         print("=" * 60)
         print(f"Virtual camera: {VIRTUAL_DEVICE}")
         print("Select 'Big-Brother-Vision-Cam' in your video app")
-        print("Keys: h=HUD | g=green | a=amber | q=quit")
+        print("Keys: h=HUD | g=green | a=amber | b=background | q=quit")
         if not self.show_preview:
             print("Preview disabled (--no-preview)")
         print("=" * 60 + "\n")
@@ -197,6 +199,9 @@ class BigBrotherCamera:
                         self.hud_color = "amber"
                         self.pipeline.set_hud_color("amber")
                         print("HUD color: amber")
+                    elif key == ord("b"):
+                        label = self.pipeline.cycle_background()
+                        print(f"Background: {label}")
 
         except Exception as e:
             print(f"Error during processing: {e}")
@@ -253,6 +258,16 @@ def parse_args() -> argparse.Namespace:
         help="Disable HUD overlay (raw camera feed)",
     )
     parser.add_argument(
+        "--background",
+        type=int,
+        default=None,
+        metavar="N",
+        help=(
+            "Replace the background with assets/wallN.jpg "
+            "(0 disables; default: remember last used)"
+        ),
+    )
+    parser.add_argument(
         "--no-preview",
         action="store_true",
         help="No preview window (lower CPU)",
@@ -275,6 +290,7 @@ def main() -> None:
     app.detect_cats = not args.no_cats
     app.hud_color = args.hud_color
     app.hud_visible = not args.no_hud_overlay
+    app.background = args.background
     app.show_preview = not args.no_preview
     app.detect_every = max(1, args.detect_every)
     sys.exit(app.run())

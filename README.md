@@ -24,6 +24,7 @@ The output is exposed as a V4L2 virtual camera compatible with Google Meet, Zoom
 - Big brother HUD: corner brackets, crosshair, large gauge bars with **full metric labels**, subject IDs, per-face side panel
 - LOYALTY block styled separately (darker accent color, multi-line label, extra spacing below other metrics)
 - Green / amber color palettes (toggle at runtime)
+- **Virtual backgrounds** — replace your room with one of the `assets/wallX.jpg` images using selfie segmentation (cycle at runtime; last choice is remembered)
 - Virtual camera at 30 FPS with optional detection throttling
 - Automatic download of the Face Landmarker model on first run
 
@@ -66,6 +67,7 @@ uv pip install -e .
    - **`h`**: Show / hide HUD overlay
    - **`g`**: Green HUD palette
    - **`a`**: Amber HUD palette
+   - **`b`**: Cycle virtual background (`wall1` → `wall2` → … → off)
    - **`q`** or **Ctrl+C**: Quit
 
 ### Command Line Options
@@ -77,6 +79,7 @@ uv pip install -e .
 | `--no-cats` | Disable cat face detection |
 | `--hud-color green\|amber` | Initial HUD color |
 | `--no-hud-overlay` | Raw camera feed only |
+| `--background N` | Use `assets/wallN.jpg` as background (`0` disables; default: remember last used) |
 | `--no-preview` | No preview window (lower CPU) |
 | `--detect-every N` | Run landmarker every N frames |
 

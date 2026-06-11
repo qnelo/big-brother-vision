@@ -9,6 +9,7 @@ import cv2
 import mediapipe as mp
 import numpy as np
 
+from background_replacer import BackgroundReplacer
 from cat_detector import CatDetector
 from cat_emotion_mapper import CatEmotionMapper
 from emotion_mapper import (
@@ -40,6 +41,7 @@ class VisionPipeline:
         hud_color: str = "green",
         hud_visible: bool = True,
         assets_dir: Path | None = None,
+        background: int | None = None,
     ):
         self.max_faces = max_faces
         self.max_cats = max_cats
@@ -63,6 +65,10 @@ class VisionPipeline:
             color_mode=hud_color,
             font_path=self.font_path,
         )
+
+        self.background_replacer = BackgroundReplacer(self.assets_dir)
+        if background is not None:
+            self.background_replacer.set_by_number(background)
 
         self._cat_detector: CatDetector | None = None
         if detect_cats:
@@ -104,6 +110,16 @@ class VisionPipeline:
 
     def set_hud_color(self, color: str) -> None:
         self.hud_renderer.set_color_mode(color)
+
+    def set_background(self, number: int) -> None:
+        self.background_replacer.set_by_number(number)
+
+    def cycle_background(self) -> str:
+        self.background_replacer.cycle()
+        return self.background_replacer.active_label()
+
+    def background_label(self) -> str:
+        return self.background_replacer.active_label()
 
     def _bbox_from_landmarks(
         self, landmarks, frame_w: int, frame_h: int, padding: float = 0.12
@@ -259,6 +275,8 @@ class VisionPipeline:
     def process_frame(self, frame: np.ndarray) -> np.ndarray:
         """Run detection/tracking and optionally draw HUD."""
         self._process_frame_count += 1
+
+        frame = self.background_replacer.apply(frame)
         run_detect = (
             self._process_frame_count % self._detect_every_n == 0
             or not self._last_detections
@@ -283,6 +301,8 @@ class VisionPipeline:
     def close(self) -> None:
         if hasattr(self, "landmarker"):
             self.landmarker.close()
+        if hasattr(self, "background_replacer"):
+            self.background_replacer.close()
 
     def __del__(self) -> None:
         self.close()
