@@ -38,18 +38,20 @@ METRIC_LABELS: dict[str, str] = {
     "DROWSY": "DROWSY",
 }
 _LOYALTY_LABEL_LINES = ("LOYALTY", "TO BIG", "BROTHER")
-_BAR_W = 150
-_BAR_H = 16
-_ROW_GAP = 22
-_LABEL_COL = 92
-_LABEL_SCALE = 0.42
-_VALUE_SCALE = 0.44
-_AGE_LINE_H = 20
-_LOYALTY_LINE_H = 14
+# Global scale factor for the per-subject metrics panel ("hub").
+_HUD_SCALE = 1.6
+_BAR_W = int(150 * _HUD_SCALE)
+_BAR_H = int(16 * _HUD_SCALE)
+_ROW_GAP = int(22 * _HUD_SCALE)
+_LABEL_COL = int(92 * _HUD_SCALE)
+_LABEL_SCALE = 0.42 * _HUD_SCALE
+_VALUE_SCALE = 0.44 * _HUD_SCALE
+_AGE_LINE_H = int(20 * _HUD_SCALE)
+_LOYALTY_LINE_H = int(14 * _HUD_SCALE)
 _LOYALTY_BLOCK_H = len(_LOYALTY_LABEL_LINES) * _LOYALTY_LINE_H
 _LOYALTY_ROW_H = max(_ROW_GAP, _LOYALTY_BLOCK_H + 4)
-_LOYALTY_TOP_GAP = 12
-_PANEL_WIDTH = _LABEL_COL + _BAR_W + 44
+_LOYALTY_TOP_GAP = int(12 * _HUD_SCALE)
+_PANEL_WIDTH = _LABEL_COL + _BAR_W + int(44 * _HUD_SCALE)
 _PANEL_HEIGHT = (
     _AGE_LINE_H
     + (len(METRIC_ORDER) - 1) * _ROW_GAP
@@ -293,7 +295,7 @@ class HudRenderer:
             age_text = "AGE: --"
         else:
             age_text = f"AGE: {int(track.age):03d}"
-        self._text(img, age_text, (x, y + _AGE_LINE_H - 4), scale=0.42)
+        self._text(img, age_text, (x, y + _AGE_LINE_H - 4), scale=_LABEL_SCALE)
         return y + _AGE_LINE_H
 
     def _panel_position(
@@ -371,26 +373,39 @@ class HudRenderer:
         pal = self._palette()
         h, w = img.shape[:2]
         now = datetime.now().strftime("%H:%M:%S")
+        s = _HUD_SCALE
 
         # REC indicator
-        cv2.circle(img, (18, 22), 5, pal["rec"], -1)
-        self._text(img, f"REC  {now}", (32, 28), scale=0.5)
-
-        self._text(img, "SYS:BIG_BROTHER_VISION", (12, h - 36), scale=0.42)
+        cv2.circle(img, (int(18 * s), int(22 * s)), int(5 * s), pal["rec"], -1)
         self._text(
             img,
-            f"TARGETS: {target_count}",
-            (w - 160, 28),
-            scale=0.45,
+            f"REC  {now}",
+            (int(32 * s), int(28 * s)),
+            scale=0.5 * s,
+        )
+
+        self._text(
+            img,
+            "SYS:BIG_BROTHER_VISION",
+            (int(12 * s), h - int(36 * s)),
+            scale=0.42 * s,
+        )
+        targets_text = f"TARGETS: {target_count}"
+        self._text(
+            img,
+            targets_text,
+            (w - int(160 * s), int(28 * s)),
+            scale=0.45 * s,
         )
 
         # Corner frame accents
         c = pal["dim"]
-        arm = 40
-        cv2.line(img, (0, 0), (arm, 0), c, 1)
-        cv2.line(img, (0, 0), (0, arm), c, 1)
-        cv2.line(img, (w - 1, 0), (w - arm, 0), c, 1)
-        cv2.line(img, (w - 1, 0), (w - 1, arm), c, 1)
+        arm = int(40 * s)
+        line_t = max(1, int(round(s)))
+        cv2.line(img, (0, 0), (arm, 0), c, line_t)
+        cv2.line(img, (0, 0), (0, arm), c, line_t)
+        cv2.line(img, (w - 1, 0), (w - arm, 0), c, line_t)
+        cv2.line(img, (w - 1, 0), (w - 1, arm), c, line_t)
 
     def render(
         self,
