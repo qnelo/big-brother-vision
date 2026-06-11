@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import threading
+import time
 import urllib.request
 from pathlib import Path
 
@@ -37,7 +39,8 @@ class VisionPipeline:
         max_faces: int = 4,
         max_cats: int = 2,
         detect_cats: bool = True,
-        detect_every_n_frames: int = 1,
+        detect_every_n_frames: int = 2,
+        segment_every_n_frames: int = 1,
         hud_color: str = "green",
         hud_visible: bool = True,
         assets_dir: Path | None = None,
@@ -66,7 +69,10 @@ class VisionPipeline:
             font_path=self.font_path,
         )
 
-        self.background_replacer = BackgroundReplacer(self.assets_dir)
+        self.background_replacer = BackgroundReplacer(
+            self.assets_dir,
+            segment_every_n=segment_every_n_frames,
+        )
         if background is not None:
             self.background_replacer.set_by_number(background)
 
@@ -95,6 +101,27 @@ class VisionPipeline:
         self._detection_rgb: np.ndarray | None = None
         self._last_detections: list[FaceDetection] = []
         self._last_tracks: list[TrackedFace] = []
+        self._last_cat_detections: list[FaceDetection] = []
+
+        # Run the Haar cat cascade only every N detection cycles (it is
+        # the most expensive detector and the least latency-sensitive).
+        self._cat_every_n_detections = 2
+        self._detect_cycle = 0
+
+        self.timings: dict[str, float] = {
+            "bg_ms": 0.0,
+            "hud_ms": 0.0,
+            "detect_ms": 0.0,
+        }
+
+        # Detection worker: keeps inference off the frame critical path.
+        self._detect_cond = threading.Condition()
+        self._detect_pending: np.ndarray | None = None
+        self._detect_running = True
+        self._detect_thread = threading.Thread(
+            target=self._detect_loop, name="detect-worker", daemon=True
+        )
+        self._detect_thread.start()
 
     def _ensure_model(self) -> Path:
         self.models_dir.mkdir(parents=True, exist_ok=True)
@@ -197,7 +224,10 @@ class VisionPipeline:
             image_format=mp.ImageFormat.SRGB, data=self._detection_rgb
         )
 
-        self._video_timestamp_ms += 33 * self._detect_every_n
+        ts = int(time.monotonic() * 1000)
+        if ts <= self._video_timestamp_ms:
+            ts = self._video_timestamp_ms + 1
+        self._video_timestamp_ms = ts
         result = self.landmarker.detect_for_video(
             mp_image, self._video_timestamp_ms
         )
@@ -263,27 +293,64 @@ class VisionPipeline:
         detections = self._detect_humans(frame)
 
         if self.detect_cats and self._cat_detector is not None:
-            cat_detections = self._cat_detector.detect(frame, self.max_cats)
-            cat_detections = self._filter_cats_overlapping_humans(
-                detections, cat_detections
-            )
-            self._apply_cat_metrics(frame, cat_detections)
-            detections.extend(cat_detections)
+            self._detect_cycle += 1
+            if self._detect_cycle % self._cat_every_n_detections == 0:
+                cat_detections = self._cat_detector.detect(
+                    frame, self.max_cats
+                )
+                cat_detections = self._filter_cats_overlapping_humans(
+                    detections, cat_detections
+                )
+                self._apply_cat_metrics(frame, cat_detections)
+                self._last_cat_detections = cat_detections
+            detections.extend(self._last_cat_detections)
 
         return detections
 
+    def _detect_loop(self) -> None:
+        """Worker thread: run detection on the most recent submitted frame."""
+        while True:
+            with self._detect_cond:
+                self._detect_cond.wait_for(
+                    lambda: self._detect_pending is not None
+                    or not self._detect_running
+                )
+                if not self._detect_running:
+                    return
+                frame = self._detect_pending
+                self._detect_pending = None
+
+            start = time.perf_counter()
+            try:
+                self._last_detections = self._detect_subjects(frame)
+            except Exception as e:
+                print(f"Detection error: {e}")
+            self.timings["detect_ms"] = (time.perf_counter() - start) * 1000.0
+
+    def _submit_for_detection(self, frame: np.ndarray) -> None:
+        """Hand the latest frame to the worker (newest frame wins)."""
+        with self._detect_cond:
+            self._detect_pending = frame.copy()
+            self._detect_cond.notify()
+
     def process_frame(self, frame: np.ndarray) -> np.ndarray:
-        """Run detection/tracking and optionally draw HUD."""
+        """Composite background, update tracks, and optionally draw HUD.
+
+        Detection runs asynchronously on a worker thread; this method
+        never blocks on inference.
+        """
         self._process_frame_count += 1
 
+        t0 = time.perf_counter()
         frame = self.background_replacer.apply(frame)
-        run_detect = (
+        t1 = time.perf_counter()
+        self.timings["bg_ms"] = (t1 - t0) * 1000.0
+
+        if (
             self._process_frame_count % self._detect_every_n == 0
             or not self._last_detections
-        )
-
-        if run_detect:
-            self._last_detections = self._detect_subjects(frame)
+        ):
+            self._submit_for_detection(frame)
 
         tracks = self.face_tracker.update(self._last_detections)
         self._last_tracks = tracks
@@ -294,11 +361,21 @@ class VisionPipeline:
         self.cat_emotion_mapper.prune_stale(active_cat_keys)
 
         if not self.hud_visible:
+            self.timings["hud_ms"] = 0.0
             return frame
 
-        return self.hud_renderer.render(frame, tracks)
+        t2 = time.perf_counter()
+        out = self.hud_renderer.render(frame, tracks)
+        self.timings["hud_ms"] = (time.perf_counter() - t2) * 1000.0
+        return out
 
     def close(self) -> None:
+        if getattr(self, "_detect_running", False):
+            with self._detect_cond:
+                self._detect_running = False
+                self._detect_cond.notify_all()
+            if self._detect_thread.is_alive():
+                self._detect_thread.join(timeout=2.0)
         if hasattr(self, "landmarker"):
             self.landmarker.close()
         if hasattr(self, "background_replacer"):

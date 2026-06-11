@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -69,6 +70,8 @@ class HudRenderer:
     _font_scale: float = 0.45
     _thickness: int = 1
     _freetype = None
+    _clock_text: str = ""
+    _clock_second: int = -1
 
     def __post_init__(self) -> None:
         self._load_font()
@@ -116,17 +119,6 @@ class HudRenderer:
                 line_type=cv2.LINE_AA,
                 bottomLeftOrigin=False,
             )
-            if bold:
-                self._freetype.putText(
-                    img,
-                    text,
-                    (x + 1, y),
-                    fontHeight=height,
-                    color=c,
-                    thickness=stroke,
-                    line_type=cv2.LINE_AA,
-                    bottomLeftOrigin=False,
-                )
         else:
             cv2.putText(
                 img,
@@ -257,6 +249,7 @@ class HudRenderer:
                     _LOYALTY_LABEL_LINES,
                     _LOYALTY_LINE_H,
                     color=loyalty_c,
+                    bold=True,
                 )
                 bar_y = cursor_y + (_LOYALTY_BLOCK_H - bar_h) // 2
                 self._draw_gauge_bar(
@@ -269,6 +262,7 @@ class HudRenderer:
                     bar_color=loyalty_c,
                     frame_color=loyalty_dim,
                     text_color=loyalty_c,
+                    value_bold=True,
                 )
                 cursor_y += _LOYALTY_ROW_H
                 continue
@@ -279,8 +273,11 @@ class HudRenderer:
                 label,
                 (x, cursor_y + bar_h - 1),
                 scale=_LABEL_SCALE,
+                bold=True,
             )
-            self._draw_gauge_bar(img, bx, cursor_y, val, bar_w, bar_h)
+            self._draw_gauge_bar(
+                img, bx, cursor_y, val, bar_w, bar_h, value_bold=True
+            )
             cursor_y += gap
 
     def draw_age_line(
@@ -295,7 +292,13 @@ class HudRenderer:
             age_text = "AGE: --"
         else:
             age_text = f"AGE: {int(track.age):03d}"
-        self._text(img, age_text, (x, y + _AGE_LINE_H - 4), scale=_LABEL_SCALE)
+        self._text(
+            img,
+            age_text,
+            (x, y + _AGE_LINE_H - 4),
+            scale=_LABEL_SCALE,
+            bold=True,
+        )
         return y + _AGE_LINE_H
 
     def _panel_position(
@@ -369,10 +372,18 @@ class HudRenderer:
         bars_y = self.draw_age_line(img, panel_x, panel_y, track)
         self.draw_gauge_bars(img, panel_x, bars_y, metrics)
 
+    def _clock(self) -> str:
+        """Cached HH:MM:SS string, reformatted at most once per second."""
+        second = int(time.time())
+        if second != self._clock_second:
+            self._clock_second = second
+            self._clock_text = datetime.now().strftime("%H:%M:%S")
+        return self._clock_text
+
     def draw_global_hud(self, img: np.ndarray, target_count: int) -> None:
         pal = self._palette()
         h, w = img.shape[:2]
-        now = datetime.now().strftime("%H:%M:%S")
+        now = self._clock()
         s = _HUD_SCALE
 
         # REC indicator
@@ -412,9 +423,8 @@ class HudRenderer:
         frame: np.ndarray,
         tracks: list[TrackedFace],
     ) -> np.ndarray:
-        """Draw full HUD on a copy of the frame."""
-        out = frame.copy()
+        """Draw full HUD in place on the frame (no copy)."""
         for index, track in enumerate(tracks):
-            self.draw_face_hud(out, track, track_index=index)
-        self.draw_global_hud(out, len(tracks))
-        return out
+            self.draw_face_hud(frame, track, track_index=index)
+        self.draw_global_hud(frame, len(tracks))
+        return frame

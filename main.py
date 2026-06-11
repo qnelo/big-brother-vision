@@ -9,10 +9,12 @@ virtual camera (v4l2loopback + pyvirtualcam).
 import argparse
 import signal
 import sys
+import threading
 import time
 from pathlib import Path
 
 import cv2
+import numpy as np
 import pyvirtualcam
 
 from vision_pipeline import VisionPipeline
@@ -23,6 +25,62 @@ VIRTUAL_DEVICE = "/dev/video10"
 TARGET_FPS = 30
 
 
+class FrameGrabber:
+    """Read camera frames on a dedicated thread, keeping only the newest.
+
+    Prevents latency buildup from stale frames queued inside the V4L2
+    capture buffer when processing is slower than the camera frame rate.
+    """
+
+    def __init__(self, camera: cv2.VideoCapture) -> None:
+        self._camera = camera
+        self._cond = threading.Condition()
+        self._frame: np.ndarray | None = None
+        self._seq = 0
+        self._running = True
+        self._thread = threading.Thread(
+            target=self._loop, name="frame-grabber", daemon=True
+        )
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def stop(self) -> None:
+        with self._cond:
+            self._running = False
+            self._cond.notify_all()
+        if self._thread.is_alive():
+            self._thread.join(timeout=2.0)
+
+    @property
+    def running(self) -> bool:
+        return self._running
+
+    def _loop(self) -> None:
+        while self._running:
+            ret, frame = self._camera.read()
+            if not ret:
+                with self._cond:
+                    self._running = False
+                    self._cond.notify_all()
+                return
+            with self._cond:
+                self._frame = frame
+                self._seq += 1
+                self._cond.notify_all()
+
+    def latest(
+        self, last_seq: int, timeout: float = 1.0
+    ) -> tuple[np.ndarray | None, int]:
+        """Block until a frame newer than ``last_seq`` arrives."""
+        with self._cond:
+            self._cond.wait_for(
+                lambda: self._seq > last_seq or not self._running,
+                timeout=timeout,
+            )
+            return self._frame, self._seq
+
+
 class BigBrotherCamera:
     """Main application for Big Brother Vision virtual camera."""
 
@@ -30,13 +88,15 @@ class BigBrotherCamera:
         self.camera = None
         self.virtual_cam = None
         self.pipeline: VisionPipeline | None = None
+        self.grabber: FrameGrabber | None = None
         self.running = True
-        self.show_preview = True
-        self.detect_every = 1
+        self.show_preview = False
+        self.detect_every = 2
+        self.seg_every = 2
         self.max_faces = 2
         self.max_cats = 2
         self.detect_cats = True
-        self.hud_color = "green"
+        self.hud_color = "amber"
         self.hud_visible = True
         self.background: int | None = None
 
@@ -65,6 +125,8 @@ class BigBrotherCamera:
                 camera.set(cv2.CAP_PROP_FPS, 30)
                 camera.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
                 camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+                # Keep at most one frame queued to avoid stale-frame lag.
+                camera.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
                 width = int(camera.get(cv2.CAP_PROP_FRAME_WIDTH))
                 height = int(camera.get(cv2.CAP_PROP_FRAME_HEIGHT))
@@ -112,6 +174,7 @@ class BigBrotherCamera:
                 max_cats=self.max_cats,
                 detect_cats=self.detect_cats,
                 detect_every_n_frames=max(1, self.detect_every),
+                segment_every_n_frames=max(1, self.seg_every),
                 hud_color=self.hud_color,
                 hud_visible=self.hud_visible,
                 assets_dir=ASSETS_DIR,
@@ -147,38 +210,60 @@ class BigBrotherCamera:
         print("=" * 60)
         print(f"Virtual camera: {VIRTUAL_DEVICE}")
         print("Select 'Big-Brother-Vision-Cam' in your video app")
-        print("Keys: h=HUD | g=green | a=amber | b=background | q=quit")
-        if not self.show_preview:
-            print("Preview disabled (--no-preview)")
+        if self.show_preview:
+            print("Keys: h=HUD | g=green | a=amber | b=background | q=quit")
+        else:
+            print("Preview disabled (use --preview for window + hotkeys)")
         print("=" * 60 + "\n")
 
         if self.show_preview:
             cv2.namedWindow("Big Brother Vision", cv2.WINDOW_NORMAL)
             cv2.resizeWindow("Big Brother Vision", 640, 360)
 
+        self.grabber = FrameGrabber(self.camera)
+        self.grabber.start()
+
         frame_count = 0
         preview_interval = 2
         last_fps = time.time()
+        seq = 0
+        process_ms = 0.0
+        send_ms = 0.0
 
         try:
             while self.running:
-                ret, frame = self.camera.read()
-                if not ret:
+                frame, new_seq = self.grabber.latest(seq)
+                if not self.grabber.running and new_seq == seq:
                     print("Failed to capture frame")
                     break
+                if frame is None or new_seq == seq:
+                    continue
+                seq = new_seq
 
+                t0 = time.perf_counter()
                 processed = self.pipeline.process_frame(frame)
+                t1 = time.perf_counter()
                 self.virtual_cam.send(processed)
+                t2 = time.perf_counter()
+                process_ms += (t1 - t0) * 1000.0
+                send_ms += (t2 - t1) * 1000.0
 
                 frame_count += 1
                 now = time.time()
                 if now - last_fps >= 3.0:
                     fps = frame_count / (now - last_fps)
-                    print(f"FPS: {fps:.1f}")
+                    t = self.pipeline.timings
+                    print(
+                        f"FPS: {fps:.1f} | "
+                        f"process {process_ms / frame_count:.1f}ms "
+                        f"(bg {t['bg_ms']:.1f} hud {t['hud_ms']:.1f}) | "
+                        f"detect(async) {t['detect_ms']:.1f}ms | "
+                        f"send {send_ms / frame_count:.1f}ms"
+                    )
                     frame_count = 0
+                    process_ms = 0.0
+                    send_ms = 0.0
                     last_fps = now
-
-                self.virtual_cam.sleep_until_next_frame()
 
                 if self.show_preview:
                     if frame_count % preview_interval == 0:
@@ -213,6 +298,8 @@ class BigBrotherCamera:
 
     def cleanup(self) -> None:
         print("\nCleaning up...")
+        if self.grabber is not None:
+            self.grabber.stop()
         if self.camera is not None:
             self.camera.release()
         if self.virtual_cam is not None:
@@ -249,8 +336,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--hud-color",
         choices=("green", "amber"),
-        default="green",
-        help="HUD color palette (default: green)",
+        default="amber",
+        help="HUD color palette (default: amber)",
     )
     parser.add_argument(
         "--no-hud-overlay",
@@ -268,16 +355,26 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
-        "--no-preview",
+        "--preview",
         action="store_true",
-        help="No preview window (lower CPU)",
+        help="Show preview window with keyboard controls (higher CPU)",
     )
     parser.add_argument(
         "--detect-every",
         type=int,
-        default=1,
+        default=2,
         metavar="N",
-        help="Run face landmarker every N frames",
+        help="Run face landmarker every N frames (default: 2)",
+    )
+    parser.add_argument(
+        "--seg-every",
+        type=int,
+        default=2,
+        metavar="N",
+        help=(
+            "Run background segmentation every N frames, reusing the "
+            "previous mask in between (default: 2)"
+        ),
     )
     return parser.parse_args()
 
@@ -291,8 +388,9 @@ def main() -> None:
     app.hud_color = args.hud_color
     app.hud_visible = not args.no_hud_overlay
     app.background = args.background
-    app.show_preview = not args.no_preview
+    app.show_preview = args.preview
     app.detect_every = max(1, args.detect_every)
+    app.seg_every = max(1, args.seg_every)
     sys.exit(app.run())
 
 

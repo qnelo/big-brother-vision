@@ -49,7 +49,7 @@ fi
 
 echo -e "\n${GREEN}Starting Big Brother Vision...${NC}"
 echo "================================================"
-echo -e "${BLUE}Controls: h = HUD | g = green | a = amber | q = quit${NC}"
+echo -e "${BLUE}Controls (with --preview): h = HUD | g = green | a = amber | q = quit${NC}"
 echo "================================================"
 
 if command -v uv &> /dev/null; then

@@ -63,7 +63,7 @@ uv pip install -e .
 
 1. Start the app: `./start.sh` or `python main.py`
 2. In Google Meet → Settings → Video → select **Big-Brother-Vision-Cam**
-3. Keyboard shortcuts (preview window focused):
+3. Keyboard shortcuts (require `--preview`, with the window focused):
    - **`h`**: Show / hide HUD overlay
    - **`g`**: Green HUD palette
    - **`a`**: Amber HUD palette
@@ -77,16 +77,17 @@ uv pip install -e .
 | `--max-faces N` | Maximum human faces to track (default: 2) |
 | `--max-cats N` | Maximum cat faces to track (default: 2) |
 | `--no-cats` | Disable cat face detection |
-| `--hud-color green\|amber` | Initial HUD color |
+| `--hud-color green\|amber` | Initial HUD color (default: amber) |
 | `--no-hud-overlay` | Raw camera feed only |
 | `--background N` | Use `assets/wallN.jpg` as background (`0` disables; default: remember last used) |
-| `--no-preview` | No preview window (lower CPU) |
-| `--detect-every N` | Run landmarker every N frames |
+| `--preview` | Show preview window with keyboard controls (higher CPU; off by default) |
+| `--detect-every N` | Run landmarker every N frames (default: 2) |
+| `--seg-every N` | Run background segmentation every N frames (default: 2) |
 
 Example for weaker hardware:
 
 ```bash
-python main.py --detect-every 2 --max-faces 2
+python main.py --detect-every 3 --seg-every 3 --max-faces 2
 ```
 
 ## What the Metrics Mean
@@ -137,9 +138,14 @@ Cats use the same HUD panel (including LOYALTY TO BIG BROTHER with the cat bonus
 
 ## Performance
 
+- A dedicated capture thread always processes the newest camera frame
+  (no stale-frame latency buildup)
+- Face landmarker + cat cascade run on a background worker thread,
+  off the frame critical path (`--detect-every 2` by default)
+- Background segmentation uses the landscape selfie model (144x256)
+  and composites in uint8 with preallocated buffers
 - Face landmarker runs at reduced width (~320px)
-- Cat Haar cascade uses the same downscaled frame
-- Use `--detect-every 2` to halve inference cost
+- Use `--detect-every 3` / `--seg-every 3` on weaker hardware
 - Limit faces with `--max-faces 2` or `--max-cats 1` on laptops
 
 ## Troubleshooting
